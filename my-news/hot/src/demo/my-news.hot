@@ -1,0 +1,123 @@
+// The namespace
+::demo::my-news ns
+
+// Namespace aliases
+::http ::hot::http
+::regex ::hot::regex
+::time ::hot::time
+::messages ::anthropic::messages
+::emails ::resend::emails
+
+// Var/Type/Fn aliases from Anthropic and Resend
+MessagesPostRequest ::messages/MessagesPostRequest
+InputMessage ::messages/InputMessage
+POSTEmailsRequest ::emails/POSTEmailsRequest
+
+sites [
+    "https://techcrunch.com/category/artificial-intelligence/",
+    "https://arstechnica.com/ai/",
+    "https://www.theverge.com/ai-artificial-intelligence",
+    "https://www.reddit.com/r/ArtificialInteligence/top/?t=day",
+    "https://www.nytimes.com/spotlight/artificial-intelligence"
+]
+
+strip-html fn (html: Str): Str {
+  html
+  // Remove script blocks with content
+  |> ::regex/replace-all("(?is)<script[^>]*>.*?</script>", "")
+  // Remove style blocks with content
+  |> ::regex/replace-all("(?is)<style[^>]*>.*?</style>", "")
+  // Remove HTML comments
+  |> ::regex/replace-all("(?s)<!--.*?-->", "")
+  // Remove head section entirely
+  |> ::regex/replace-all("(?is)<head[^>]*>.*?</head>", "")
+  // Convert links with absolute URLs to "text (url)" format
+  // Handle both double and single quoted hrefs
+  |> ::regex/replace-all("(?is)<a[^>]*href=\"(https?://[^\"]+)\"[^>]*>([^<]*)</a>", "$2 ($1)")
+  |> ::regex/replace-all("(?is)<a[^>]*href='(https?://[^']+)'[^>]*>([^<]*)</a>", "$2 ($1)")
+  // Remove links with relative/broken URLs (just keep the text)
+  |> ::regex/replace-all("(?is)<a[^>]*>([^<]*)</a>", "$1")
+  // Remove all remaining HTML tags
+  |> ::regex/replace-all("<[^>]+>", "")
+  // Decode common HTML entities
+  |> replace("&nbsp;", " ")
+  |> replace("&amp;", "&")
+  |> replace("&lt;", "<")
+  |> replace("&gt;", ">")
+  |> replace("&quot;", "\"")
+  |> replace("&#39;", "'")
+  |> replace("&mdash;", "—")
+  |> replace("&ndash;", "–")
+  |> replace("&hellip;", "...")
+  // Collapse multiple whitespace/newlines
+  |> ::regex/replace-all("\\s+", " ")
+  |> trim()
+}
+
+// fetch news from the web (return null if failed)
+fetch-news fn (url: Str): Str? {
+  response ::http/get(url)
+  if(::http/is-ok-response(response), strip-html(response.body))
+}
+
+// summarize news via ai
+summarize-news fn (news: Vec<Str>): Str {
+  prompt `Summarize these news items into a nicely formatted email digest.
+
+  Output ONLY raw HTML (no markdown, no code fences). Structure:
+  1. <h2> for the title "Hot AI News"
+  2. <p><em> with a 2-3 sentence summary of the major themes or biggest stories
+  3. <hr> separator
+  4. <ul> and <li> for the list of individual stories with <a href="url"> links
+
+  Today is: ${::time/PlainDate()}.
+  Include max 20 links--try to include at least one from each site.
+  Dedupe similar stories (pick one).
+  Order by most recent.
+  Keep each story to one line with the source name.`
+
+  request MessagesPostRequest({
+    model: "claude-sonnet-4-5-20250929",
+    max_tokens: 4096,
+    messages: [
+      InputMessage({
+        role: "user",
+        content: `${prompt}\n\nNews to summarize:\n\n${join(news, "\n\n---\n\n")}`
+      })
+    ]
+  })
+
+  response ::messages/post(request)
+
+  // Extract text and strip markdown code fences if present
+  first(response.content).text
+  |> ::regex/replace-all("^```html?\\s*", "")
+  |> ::regex/replace-all("```\\s*$", "")
+  |> trim()
+}
+
+send-email fn (news: Str): Str {
+  request POSTEmailsRequest({
+    from: "hi@demo.hot.dev",
+    to: ["hi@hot.dev"],
+    subject: "Hot AI News",
+    html: news
+  })
+
+  sent ::emails/send-email(request)
+  if(is-ok(sent), sent, fail("Failed to send email", sent))
+}
+
+// This sends new via a schedule and when it receives a "send-my-news-now" event.
+send-my-news
+meta {
+  schedule: "every day at 2pm",  // run every day at 2pm UTC (8am PST)
+  on-event: "send-my-news-now"
+}
+fn (event) {
+  sites
+  |> pmap(fetch-news)  // pmap is a parallel map, it will fetch news from the web in parallel
+  |> filter(is-some)   // filter out any fetch failures (which are null)
+  |> summarize-news()  // summarize the news via ai
+  |> send-email()      // send the summarized news via email
+}

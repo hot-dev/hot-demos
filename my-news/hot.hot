@@ -1,0 +1,33 @@
+// Hot Configuration File
+// Minimal configuration for local development.
+// Run `hot conf generate all` to see all available options.
+
+::hot::conf ns
+
+::env ::hot::env
+
+// Profile Configuration
+hot.set.profile "local-dev"
+hot.set.project "my-news"
+hot.set.remote "hot-dev"
+
+// Local Development Profile
+hot.profile.local-dev.user.email "local@hot.dev"
+hot.profile.local-dev.org.slug "local"
+hot.profile.local-dev.env.name "development"
+
+// Remote API (hot.dev)
+hot.remote.hot-dev.url ::env/get("HOT_API_URL", "https://api.hot.dev")
+hot.remote.hot-dev.key ::env/get("HOT_API_KEY", "")
+
+// Project Configuration
+hot.project.my-news.src.paths ["./hot/src"]
+hot.project.my-news.test.paths ["./hot/test"]
+hot.project.my-news.deps {
+    "hot.dev/anthropic": "0.9.2",
+    "hot.dev/resend": "0.9.2"
+}
+
+// Dev Server Configuration
+// Open browser to app URL when running `hot dev`
+hot.dev.open false
