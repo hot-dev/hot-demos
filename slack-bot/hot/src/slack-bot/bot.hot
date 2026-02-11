@@ -1,0 +1,328 @@
+::slack-bot::bot ns
+
+// ============================================================================
+// Namespace Aliases
+// ============================================================================
+
+::channels  ::slack::channels
+::messaging ::slack::messaging
+::misc      ::slack::misc
+::webhooks  ::slack::webhooks
+::time      ::hot::time
+::ctx       ::hot::ctx
+
+// HTTP types for webhook handler
+HttpRequest  ::hot::http/HttpRequest
+HttpResponse ::hot::http/HttpResponse
+
+// AI provider aliases
+::anthropic-chat ::anthropic::messages
+::openai-chat    ::openai::chat
+::xai-chat       ::xai::responses
+::gemini-chat    ::gemini::chat
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+get-channel-id
+meta {ctx: {"slack.channel.id": {required: true}}}
+fn (): Str { ::ctx/get("slack.channel.id") }
+
+AiService enum { Anthropic, OpenAi, Xai, Gemini }
+
+SYSTEM_PROMPT "You are a helpful AI assistant in a Slack channel.
+Keep responses concise and conversational.
+Use Slack-compatible markdown formatting (*bold*, _italic_, `code`, ```code blocks```).
+You will be given the recent conversation history for context —
+respond naturally to the latest message."
+
+// Number of recent messages to fetch for AI context
+CONTEXT_MESSAGES 20
+
+// ============================================================================
+// AI Model Selection — !ai commands in chat
+// ============================================================================
+// Every alias maps to {service, model} so you can pick a provider OR a specific model.
+// Type `!ai sonnet` or `!ai gpt` or `!ai grok` — whatever feels natural.
+
+MODEL_ALIASES {
+  "claude":   {service: "Anthropic", model: "claude-sonnet-4-5"},
+  "sonnet":   {service: "Anthropic", model: "claude-sonnet-4-5"},
+  "opus":     {service: "Anthropic", model: "claude-opus-4-6"},
+  "gpt":      {service: "OpenAi",    model: "gpt-5.2"},
+  "gpt-5.2":  {service: "OpenAi",    model: "gpt-5.2"},
+  "gpt-mini": {service: "OpenAi",    model: "gpt-5-mini"},
+  "grok":     {service: "Xai",       model: "grok-4-1-fast"},
+  "gemini":   {service: "Gemini",    model: "gemini-3-flash-preview"}
+}
+
+// Default selection (used when no !ai command found in history)
+DEFAULT_SELECTION {service: "Anthropic", model: "claude-sonnet-4-5"}
+
+// Display info for each service (emoji + display name)
+SERVICE_INFO {
+  "Anthropic": {name: "Anthropic", emoji: ":brain:"},
+  "OpenAi":    {name: "OpenAI",    emoji: ":robot_face:"},
+  "Xai":       {name: "xAI",       emoji: ":zap:"},
+  "Gemini":    {name: "Google",    emoji: ":sparkles:"}
+}
+
+// ============================================================================
+// Command Parsing & Provider Detection
+// ============================================================================
+
+// Parse a message for an !ai command. Returns {service, model}, "help", or null.
+parse-ai-command fn (text: Str): Any? {
+  trimmed text
+    |> or("")
+    |> lowercase
+    |> trim
+  cond {
+    not(starts-with(trimmed, "!ai")) => { null }
+    eq(trimmed, "!ai")               => { "help" }
+    => {
+      arg trimmed |> slice(3) |> trim
+      get(MODEL_ALIASES, arg)
+    }
+  }
+}
+
+// Scan channel history for the most recent !ai selection.
+// Returns {service, model} to use.
+detect-selection fn (channel: Str, bot-user-id: Str): Map {
+  history ::channels/conversations-history(::channels/ConversationsHistoryRequest({
+    channel: channel,
+    limit: 100
+  }))
+
+  msg-selection fn cond (msg: Map): Map? {
+    eq(msg.user, bot-user-id) => { null }
+    is-some(msg.subtype)      => { null }
+    => {
+      cmd msg.text |> or("") |> parse-ai-command
+      if(is-map(cmd), cmd)
+    }
+  }
+
+  history.messages
+    |> or([])
+    |> reduce((acc, msg) { or(acc, msg-selection(msg)) }, null)
+    |> or(DEFAULT_SELECTION)
+}
+
+// Map service string to enum variant
+to-service fn cond (key: Str): AiService {
+  eq(key, "Anthropic") => { AiService.Anthropic }
+  eq(key, "OpenAi")    => { AiService.OpenAi }
+  eq(key, "Xai")       => { AiService.Xai }
+  eq(key, "Gemini")    => { AiService.Gemini }
+  => { AiService.Anthropic }
+}
+
+// Format the selection list for display
+selection-list-text fn (active: Map): Str {
+  SERVICE_INFO
+    |> keys
+    |> map((key) {
+      svc get(SERVICE_INFO, key)
+      marker if(eq(key, active.service), ` :white_check_mark: \`${active.model}\``, "")
+      `${svc.emoji}  *${svc.name}*${marker}`
+    })
+    |> join("\n")
+}
+
+// ============================================================================
+// AI Dispatch
+// ============================================================================
+
+ask-ai fn match (service: AiService, model: Str, message: Str, system: Str): Str {
+  AiService.Anthropic => { ::anthropic-chat/chat(model, message, system) }
+  // Uncomment as you add API keys for additional providers:
+  // AiService.OpenAi => { ::openai-chat/chat(model, message, system) }
+  // AiService.Xai    => { ::xai-chat/chat(model, message, system) }
+  // AiService.Gemini => { ::gemini-chat/chat(model, message, system) }
+  => { err("This AI provider is not configured yet. Add its API key in Context Variables and uncomment its line in ask-ai.") }
+}
+
+// ============================================================================
+// Message Handling (shared between polling and webhook modes)
+// ============================================================================
+
+get-bot-user-id fn (): Str {
+  auth ::misc/auth-test(::misc/AuthTestRequest({}))
+  auth.user_id
+}
+
+// Fetch recent channel messages and format as conversation context
+fetch-context fn (channel: Str, bot-user-id: Str): Str {
+  history ::channels/conversations-history(::channels/ConversationsHistoryRequest({
+    channel: channel,
+    limit: CONTEXT_MESSAGES
+  }))
+
+  is-not-ai-command fn (msg: Map): Bool {
+    msg.text
+      |> or("")
+      |> lowercase
+      |> trim
+      |> starts-with("!ai")
+      |> not
+  }
+
+  history.messages
+    |> or([])
+    |> reverse
+    |> filter(is-not-ai-command)
+    |> map((msg) {
+      speaker if(eq(msg.user, bot-user-id), "Assistant", "User")
+      `${speaker}: ${or(msg.text, "")}`
+    })
+    |> join("\n")
+}
+
+// Handle a single message — dispatch !ai commands or reply with AI
+handle-message fn (channel: Str, message: Map, bot-user-id: Str): Map {
+  text or(message.text, "")
+  cmd parse-ai-command(text)
+
+  cond {
+    // !ai — show current model and available options
+    eq(cmd, "help") => {
+      active detect-selection(channel, bot-user-id)
+      svc get(SERVICE_INFO, active.service)
+      ::messaging/chat-post-message(::messaging/ChatPostMessageRequest({
+        channel: channel,
+        text: concat(
+          `*AI Model* — currently using ${svc.emoji} *${svc.name}* \`${active.model}\`\n\n`,
+          selection-list-text(active),
+          "\n\nSwitch: `!ai claude` · `!ai opus` · `!ai gpt` · `!ai gpt-mini` · `!ai grok` · `!ai gemini`"
+        )
+      }))
+    }
+
+    // !ai <selection> — acknowledge the switch with service + model
+    is-some(cmd) => {
+      svc get(SERVICE_INFO, cmd.service)
+      ::messaging/chat-post-message(::messaging/ChatPostMessageRequest({
+        channel: channel,
+        text: `${svc.emoji} Switched to *${svc.name}* \`${cmd.model}\``
+      }))
+    }
+
+    // Regular message — detect model from history and reply with context
+    => {
+      sel detect-selection(channel, bot-user-id)
+      service to-service(sel.service)
+      context fetch-context(channel, bot-user-id)
+      prompt if(is-empty(context),
+        text,
+        `Recent conversation:\n\n${context}\n\n---\nRespond to the latest message.`
+      )
+
+      ai-response ask-ai(service, sel.model, prompt, SYSTEM_PROMPT)
+      ::messaging/chat-post-message(::messaging/ChatPostMessageRequest({
+        channel: channel,
+        text: ai-response
+      }))
+    }
+  }
+}
+
+// ============================================================================
+// Mode 1: Polling (Local Development)
+// ============================================================================
+// Comment out the schedule line before deploying to production.
+// In production, webhooks handle messages in real time — polling is not needed.
+
+check-channel-poll
+meta {
+  schedule: "every 15 seconds",  // comment out scheduled polling in Hot Dev Cloud in favor of webhooks + Slack Events API
+  on-event: "slack-bot:check"
+}
+fn (event) {
+  channel get-channel-id()
+  bot-user-id get-bot-user-id()
+
+  now ::time/now()
+  ms-ago Str(sub(::time/epoch-millis(now), 120000))
+  oldest concat(slice(ms-ago, 0, sub(length(ms-ago), 3)), ".", slice(ms-ago, sub(length(ms-ago), 3)))
+
+  history ::channels/conversations-history(::channels/ConversationsHistoryRequest({
+    channel: channel,
+    oldest: oldest,
+    limit: 50
+  }))
+
+  messages or(history.messages, [])
+  latest first(messages)
+
+  cond {
+    // No messages or bot was the last to speak — nothing new to respond to
+    or(is-empty(messages), eq(latest.user, bot-user-id), is-some(latest.bot_id)) => { "no new messages" }
+
+    => {
+      messages
+        |> filter((msg) {
+          and(
+            ne(msg.user, bot-user-id),
+            is-null(msg.bot_id),
+            is-null(msg.subtype),
+            is-null(msg.thread_ts)
+          )
+        })
+        |> for-each((msg) { handle-message(channel, msg, bot-user-id) })
+    }
+  }
+}
+
+// ============================================================================
+// Mode 2: Webhooks (Production / Deployed)
+// ============================================================================
+
+on-slack-event
+meta {
+  webhook: {
+    service: "slack-bot",
+    path: "/events",
+    method: "POST",
+    description: "Receive Slack Events API callbacks"
+  }
+}
+fn (request: HttpRequest): HttpResponse {
+  cond {
+    eq(request.body.type, "url_verification") => {
+      HttpResponse({
+        status: 200,
+        headers: {"content-type": "application/json"},
+        body: {challenge: request.body.challenge}
+      })
+    }
+
+    not(::webhooks/verify-request(request)) => {
+      HttpResponse({status: 401, body: {error: "invalid signature"}})
+    }
+
+    eq(request.body.type, "event_callback") => {
+      event request.body.event
+
+      cond {
+        and(eq(event.type, "message"), is-null(event.subtype), is-null(event.bot_id), is-null(event.thread_ts)) => {
+          bot-user-id get-bot-user-id()
+          if(ne(event.user, bot-user-id),
+            handle-message(or(event.channel, get-channel-id()), event, bot-user-id)
+          )
+          HttpResponse({status: 200, body: {ok: true}})
+        }
+
+        => {
+          HttpResponse({status: 200, body: {ok: true, ignored: true}})
+        }
+      }
+    }
+
+    => {
+      HttpResponse({status: 200, body: {ok: true}})
+    }
+  }
+}

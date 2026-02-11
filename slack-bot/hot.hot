@@ -1,0 +1,30 @@
+// Hot Configuration File
+// Minimal configuration for local development.
+// Run `hot conf generate all` to see all available options.
+
+::hot::conf ns
+
+::env ::hot::env
+
+hot.set.project "slack-bot"
+hot.set.remote "hot-dev"
+
+// Remote API (hot.dev)
+hot.remote.hot-dev.url ::env/get("HOT_API_URL", "https://api.hot.dev")
+hot.remote.hot-dev.key ::env/get("HOT_API_KEY", "")
+
+// Project Configuration
+hot.project.slack-bot.src.paths ["./hot/src"]
+hot.project.slack-bot.test.paths ["./hot/test"]
+hot.project.slack-bot.deps {
+    "hot.dev/hot-ai": "1.0.0",
+    "hot.dev/slack": "1.0.4",
+    "hot.dev/anthropic": "1.0.3",
+    "hot.dev/openai": "1.0.4",
+    "hot.dev/xai": "1.0.3",
+    "hot.dev/gemini": "1.0.3"
+}
+
+// Dev Server Configuration
+// Open browser to app URL when running `hot dev`
+hot.dev.open false
