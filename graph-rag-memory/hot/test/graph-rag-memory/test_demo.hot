@@ -1,0 +1,32 @@
+::graph-rag-memory::test::demo ns
+
+::demo ::graph-rag-memory::demo
+::memory ::ai::memory
+
+test-seed-demo
+meta ["test"]
+fn () {
+    counts ::demo/seed-demo()
+    assert(eq(counts.records, 3))
+    assert(eq(counts.capsules, 1))
+    assert(eq(counts.nodes, 5))
+    assert(eq(counts.edges, 4))
+}
+
+test-hybrid-query-has-citations
+meta ["test"]
+fn () {
+    ::demo/seed-demo()
+    result ::demo/query("What blocks TeamAgent launch readiness?")
+    assert(gt(result.citation-count, 0))
+    assert(gt(result.edge-count, 0))
+}
+
+test-neighbor-edges
+meta ["test"]
+fn () {
+    mem ::demo/memory()
+    ::demo/seed-demo()
+    edges ::memory/neighbor-edges(mem, "project:team-agent")
+    assert(eq(length(edges), 2))
+}

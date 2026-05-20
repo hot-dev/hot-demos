@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout hot-demos
+        uses: actions/checkout@v4
+
+      - name: Checkout Hot for local package overrides
+        uses: actions/checkout@v4
+        with:
+          repository: hot-dev/hot
+          path: hot
+
+      - name: Install Hot
+        uses: hot-dev/setup-hot@v1
+
+      - name: Show Hot version
+        run: hot --version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: hot-chat/package-lock.json
+
+      - name: Install hot-chat dependencies
+        run: npm ci
+        working-directory: hot-chat
+
+      - name: Build hot-chat
+        run: npm run build
+        working-directory: hot-chat
+
+      - name: Test my-news
+        run: hot test
+        working-directory: my-news
+
+      - name: Test slack-bot
+        run: hot test
+        working-directory: slack-bot
+
+      - name: Test team-agent
+        run: hot test
+        working-directory: team-agent
+        env:
+          HOT_AI_PATH: ../hot/hot/pkg/hot-ai
+          HOT_AI_AGENT_PATH: ../hot/hot/pkg/hot-ai-agent
+
+      - name: Test personal-agent
+        run: hot test
+        working-directory: personal-agent
+        env:
+          HOT_AI_PATH: ../hot/hot/pkg/hot-ai
+          HOT_AI_AGENT_PATH: ../hot/hot/pkg/hot-ai-agent
+
+      - name: Test graph-rag-memory
+        run: hot test
+        working-directory: graph-rag-memory
+        env:
+          HOT_AI_PATH: ../hot/hot/pkg/hot-ai

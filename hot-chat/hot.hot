@@ -1,0 +1,35 @@
+// Hot Configuration File
+// Hot Chat demo bundle: Next.js client + PersonalAgent + TeamAgent.
+// One Hot project boots both agents at http://localhost:4681.
+
+::hot::conf ns
+
+::env ::hot::env
+
+hot.set.profile "local-dev"
+hot.set.project "hot-chat"
+hot.set.remote "hot-dev"
+
+hot.profile.local-dev.user.email "local@hot.dev"
+hot.profile.local-dev.org.slug "local"
+hot.profile.local-dev.env.name "development"
+
+hot.remote.hot-dev.url ::env/get("HOT_API_URL", "https://api.hot.dev")
+hot.remote.hot-dev.key ::env/get("HOT_API_KEY", "")
+
+hot.project.hot-chat.src.paths ["./hot/src"]
+hot.project.hot-chat.test.paths ["./hot/test"]
+hot.project.hot-chat.test.capture true
+
+// Local deps track the in-repo packages so demo work + library work stay
+// in lock-step. To pin against the CDN once both are published, swap to:
+//   "hot.dev/hot-ai":       "1.4.0",
+//   "hot.dev/hot-ai-agent": "1.0.0",
+//   "hot.dev/anthropic":    "1.2.1",
+hot.project.hot-chat.deps {
+    "hot.dev/hot-ai":       { "local": ::env/get("HOT_AI_PATH",        "../../hot/hot/pkg/hot-ai") },
+    "hot.dev/hot-ai-agent": { "local": ::env/get("HOT_AI_AGENT_PATH",  "../../hot/hot/pkg/hot-ai-agent") },
+    "hot.dev/anthropic":    { "local": ::env/get("HOT_ANTHROPIC_PATH", "../../hot/hot/pkg/anthropic") },
+}
+
+hot.dev.open false

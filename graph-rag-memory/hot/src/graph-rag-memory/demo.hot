@@ -1,0 +1,161 @@
+::graph-rag-memory::demo ns
+meta {
+    doc: "Standalone graph-RAG memory tutorial demo."
+}
+
+::session ::ai::session
+::message ::ai::message
+::memory ::ai::memory
+::lang ::hot::lang
+
+Session ::session/Session
+Identity ::session/Identity
+Message ::message/Message
+
+agent-name "graph-rag-memory-demo"
+demo-session Session({id: "graph-rag-memory:demo"})
+demo-identity Identity({id: "u-demo", name: "Demo User"})
+
+memory fn (): ::memory/AgentMemory {
+    ::memory/create-memory(agent-name, demo-session, demo-identity)
+}
+
+msg fn (id: Str, content: Str, ts: Int): Message {
+    Message({
+        id: id,
+        content: content,
+        sender: demo-identity,
+        session: demo-session,
+        timestamp: ts,
+        source: "demo",
+        metadata: {message_id: id, source_id: id},
+    })
+}
+
+seed-records fn (mem: ::memory/AgentMemory): Any {
+    ::memory/remember(mem, msg("m-1", "TeamAgent launch readiness is blocked by docs and demo CI.", 100))
+    ::memory/remember(mem, msg("m-2", "Ada owns the TeamAgent docs walkthrough.", 200))
+    ::memory/remember(mem, msg("m-3", "Lin owns the hot-demos CI workflow using setup-hot.", 300))
+}
+
+seed-capsule fn (mem: ::memory/AgentMemory): Any {
+    entries ::hot::store/list(mem.session-store)
+    capsule ::memory/capsule-from-window("launch-readiness", "Launch readiness depends on docs, demo CI, and package dependency notes.", entries, {
+        metadata: {kind: "demo", topic: "launch-readiness"},
+    })
+    ::memory/store-capsule(mem, capsule)
+}
+
+seed-graph fn (mem: ::memory/AgentMemory): Map {
+    provenance [
+        ::memory/MemoryProvenance({
+            source: "demo",
+            source-id: "m-1",
+            session-id: demo-session.id,
+            user-id: demo-identity.id,
+            message-id: "m-1",
+            key: "m-1",
+            timestamp: 100,
+            score: 1.0,
+            metadata: {},
+        })
+    ]
+    candidates ::memory/extract-graph-candidates({
+        nodes: [
+            {
+                id: "project:team-agent",
+                kind: "project",
+                label: "TeamAgent",
+            },
+            {
+                id: "task:docs",
+                kind: "task",
+                label: "Docs walkthrough",
+            },
+            {
+                id: "task:ci",
+                kind: "task",
+                label: "Demo CI",
+            },
+            {
+                id: "person:ada",
+                kind: "person",
+                label: "Ada",
+            },
+            {
+                id: "person:lin",
+                kind: "person",
+                label: "Lin",
+            },
+        ],
+        edges: [
+            {
+                id: "edge:team-agent-docs",
+                from: "project:team-agent",
+                relation: "blocked-by",
+                to: "task:docs",
+            },
+            {
+                id: "edge:team-agent-ci",
+                from: "project:team-agent",
+                relation: "blocked-by",
+                to: "task:ci",
+            },
+            {
+                id: "edge:ada-docs",
+                from: "person:ada",
+                relation: "owns",
+                to: "task:docs",
+            },
+            {
+                id: "edge:lin-ci",
+                from: "person:lin",
+                relation: "owns",
+                to: "task:ci",
+            },
+        ],
+    }, provenance)
+    ::memory/store-graph-candidates(mem, candidates)
+}
+
+seed-demo fn (): Map {
+    mem memory()
+    seed-records(mem)
+    seed-capsule(mem)
+    counts seed-graph(mem)
+    {
+        records: length(::memory/list-session-records(mem)),
+        capsules: length(::memory/list-capsules(mem)),
+        nodes: counts.nodes,
+        edges: counts.edges,
+    }
+}
+
+query fn (text: Str): Map {
+    mem memory()
+    attempt ::lang/try-call(() { ::memory/hybrid-recall(mem, text, {limit: 5, seed-node-ids: ["project:team-agent"]}) })
+    graph ::memory/graph-expand(mem, ["project:team-agent"])
+    results cond {
+        attempt.ok => { attempt.value }
+        => {
+            {
+                vector: [],
+                graph: graph,
+                citations: graph.citations,
+                error: attempt.error,
+            }
+        }
+    }
+    {
+        vector-count: length(results.vector),
+        edge-count: length(results.graph.edges),
+        citation-count: length(results.citations),
+        citations: map(results.citations, (c) {
+            {
+                id: c.id,
+                label: c.label,
+                excerpt: c.excerpt,
+            }
+        }),
+    }
+}

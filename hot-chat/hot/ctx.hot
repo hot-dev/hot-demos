@@ -1,0 +1,20 @@
+::hot::run::ctx ns
+meta {
+    doc: """
+    Per-run context bridge for Hot Chat.
+
+    Hot runs this file at startup. Provider adapters like
+    `::anthropic::api` read their credentials from `::hot::ctx`, so we
+    forward selected env vars from `.env` into the live context here.
+
+    Add new provider keys (OpenAI, xAI, Gemini, …) by following the same
+    `::hot::env/get("FOO_API_KEY", "")` pattern below.
+
+    Secrets are not stored in this file — only the bridge code is. Keep
+    real keys in `.env` (which is gitignored).
+    """
+}
+
+::hot::ctx/set({
+    "anthropic.api.key": ::hot::env/get("ANTHROPIC_API_KEY", ""),
+})

@@ -1,0 +1,140 @@
+::team-agent::test ns
+
+::demo ::team-agent
+
+// Event handlers in the demo take `event` and read `event.data`.
+// Tests synthesize that envelope directly so they don't need the
+// platform's event bus.
+//
+// Recall-based handlers (`ask-question`, `daily-brief`-style commands)
+// are exercised end-to-end in the live demo; tests here cover the
+// dispatch shape, identity resolution, and writes that don't require
+// an embedding provider.
+//
+// Free-chat handlers force the offline-stub path by clearing the
+// Anthropic key in ctx — keeps `hot test` hermetic and free.
+::hot::ctx/set("anthropic.api.key", "")
+
+mk-event fn (data: Map): Map { {data: data} }
+
+base-data fn (session-id: Str, user-id: Str, user-name: Str): Map {
+    {
+        session_id: session-id,
+        user_id: user-id,
+        user_name: user-name,
+        message_id: `web:${session-id}:test`,
+        timestamp: 1700000000,
+    }
+}
+
+// Free-chat now persists the writer's message AND streams an LLM reply.
+// Without `ANTHROPIC_API_KEY` in the test environment, the handler
+// falls back to a deterministic stub so this test stays hermetic.
+test-record-message-persists-and-replies
+meta ["test"]
+fn () {
+    data {
+        ...base-data("test-channel", "u-1", "Ada"),
+        text: "Sharing the launch plan",
+    }
+    result ::demo/record-message(mk-event(data))
+    assert(result.ok)
+    assert(contains(result.text, "ANTHROPIC_API_KEY"))
+}
+
+test-record-message-handles-attachments
+meta ["test"]
+fn () {
+    data {
+        ...base-data("test-channel", "u-1", "Ada"),
+        text: "Sharing the launch plan",
+        attachments: [{name: "launch.txt", type: "text/plain", size: 42, text: "blockers"}],
+    }
+    result ::demo/record-message(mk-event(data))
+    assert(result.ok)
+}
+
+test-summary-runs-after-records
+meta ["test"]
+fn () {
+    session-id `summary-${Uuid()}`
+    base base-data(session-id, "u-1", "Ada")
+    ::demo/record-message(mk-event({...base, message_id: `${base.message_id}:1`, text: "first record"}))
+    ::demo/record-message(mk-event({...base, message_id: `${base.message_id}:2`, text: "second record"}))
+    result ::demo/session-summary(mk-event(base))
+    assert(result.ok)
+}
+
+test-whoami-includes-session-and-user
+meta ["test"]
+fn () {
+    data base-data("standup", "u-1", "Ada")
+    result ::demo/show-whoami(mk-event(data))
+    assert(contains(result.text, "Session: web:standup"))
+    assert(contains(result.text, "User: u-1"))
+}
+
+test-memory-inspection-runs
+meta ["test"]
+fn () {
+    data base-data(`mem-${Uuid()}`, "u-1", "Ada")
+    result ::demo/inspect-memory(mk-event(data))
+    assert(result.ok)
+    assert(contains(result.text, "Memory"))
+}
+
+test-guide-lists-commands
+meta ["test"]
+fn () {
+    data base-data("standup", "u-1", "Ada")
+    result ::demo/show-guide(mk-event(data))
+    assert(contains(result.text, "/ask"))
+    assert(contains(result.text, "Record"))
+    assert(contains(result.text, "/inbox"))
+}
+
+// Scheduled handlers + channel inbox.
+//
+// `recipient-for` keys notifications by `channel:web:<session-id>`, so
+// /inbox surfaces them per-channel rather than per-user. Drive a
+// /record first to register the session on the runtime, then invoke
+// the schedule directly and read back.
+
+test-daily-standup-writes-notification-to-channel-inbox
+meta ["test"]
+fn () {
+    session-id `standup-${Uuid()}`
+    base base-data(session-id, "u-1", "Ada")
+    ::demo/record-message(mk-event({...base, text: "Shipping the migration today."}))
+
+    ::demo/daily-standup(mk-event({}))
+
+    result ::demo/show-inbox(mk-event(base))
+    assert(result.ok)
+    assert(contains(result.text, "daily-standup"))
+}
+
+test-stale-decision-check-skips-when-offline-stub
+meta ["test"]
+fn () {
+    // Same shape as the personal stale-task nudge: the offline stub
+    // matches the agent's guard, no notification gets written.
+    session-id `stale-${Uuid()}`
+    base base-data(session-id, "u-1", "Ada")
+    ::demo/record-message(mk-event({...base, text: "Decision: ship on Friday."}))
+
+    ::demo/stale-decision-check(mk-event({}))
+
+    result ::demo/show-inbox(mk-event(base))
+    assert(result.ok)
+    assert(contains(result.text, "No notifications"))
+}
+
+test-inbox-empty-by-default
+meta ["test"]
+fn () {
+    data base-data(`empty-${Uuid()}`, "u-1", "Ada")
+    result ::demo/show-inbox(mk-event(data))
+    assert(result.ok)
+    assert(contains(result.text, "No notifications"))
+}

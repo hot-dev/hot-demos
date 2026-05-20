@@ -1,0 +1,561 @@
+::team-agent ns
+meta {
+    doc: """
+    Standalone TeamAgent tutorial demo.
+
+    Each command is its own `on-event` handler — no central dispatch
+    function, no big cond. Hot Chat (the Next.js client) parses slash
+    commands client-side and POSTs `{event_type, event_data}` to
+    `/v1/streams/subscribe-with-event`; the matching handler below runs
+    and emits a `team-agent:reply:*` stream the client renders.
+
+    Memory is keyed by **session** (`web:chat:<id>`, `slack:T0:C0`,
+    `telegram:-100…`), so two channels stay independent while two
+    members of the same channel share one memory.
+
+    The free-chat / synthesis handlers delegate the
+    "RAG → persist user → stream LLM → persist assistant" lifecycle to
+    `::ai::agent::chat-turn`, which enforces the correct ordering and
+    avoids RAG self-poisoning the user's own message.
+    """
+}
+
+::store         ::hot::store
+::session       ::ai::session
+::message       ::ai::message
+::memory        ::ai::memory
+::transport     ::ai::agent::transport
+::runtime       ::ai::agent::runtime
+::agent-memory  ::ai::agent::memory
+::att           ::ai::agent::attachments
+::stream        ::ai::agent::stream
+::chat-turn     ::ai::agent::chat-turn
+::lifecycle     ::ai::agent::lifecycle
+::notify        ::ai::agent::notify
+::synthesis     ::ai::agent::synthesis
+::rag           ::ai::rag
+::ai-chat       ::ai::chat
+::anth          ::anthropic::chat-tools
+::env           ::hot::env
+::ctx           ::hot::ctx
+
+Session    ::session/Session
+Identity   ::session/Identity
+TurnConfig ::chat-turn/TurnConfig
+TurnInput  ::chat-turn/TurnInput
+
+TeamAgent
+meta {
+    doc: "Team memory agent demo: per-command event handlers with streamed replies.",
+    agent: {
+        name: "TeamAgent Demo",
+        description: "Per-command event handlers, channel-keyed memory, and streamed replies for the Hot Chat tutorial.",
+        tags: ["demo", "agent", "memory"],
+    },
+}
+type {
+    model: Str,
+}
+
+AGENT_NAME    "team-agent-demo"
+STREAM_LABEL  "team-agent"
+DEFAULT_MODEL "claude-sonnet-4-5"
+
+agent           TeamAgent({model: ::env/get("HOT_CHAT_MODEL", DEFAULT_MODEL)})
+rt              ::runtime/create-runtime(AGENT_NAME, {store-prefix: "demo-team-agent", max-errors: 5})
+system-identity ::session/Identity({id: "system", name: "TeamAgent"})
+
+chat-opts ::ai-chat/ChatOptions({
+    chat-stream-fn: ::anth/chat-with-tools-stream,
+    model: ::env/get("HOT_CHAT_MODEL", DEFAULT_MODEL),
+    max-iterations: 4,
+})
+
+now fn (): Int { ::runtime/now-epoch-secs() }
+
+// The Anthropic adapter reads its key from `::hot::ctx` (see
+// `hot/ctx.hot`, which bridges `.env`'s `ANTHROPIC_API_KEY` into
+// `anthropic.api.key`). We probe the same place so the offline stub
+// kicks in when no key has been wired through.
+has-llm-key fn (): Bool {
+    not(is-empty(or(::ctx/get("anthropic.api.key", ""), "")))
+}
+
+OFFLINE_STUB "(LLM disabled: set ANTHROPIC_API_KEY in .env to enable AI replies.)"
+
+stub-or-null fn (): Str? {
+    cond {
+        has-llm-key() => { null }
+        => { OFFLINE_STUB }
+    }
+}
+
+// ============================================================================
+// Shared helpers
+// ============================================================================
+
+session-from-data fn (data: Map): Session {
+    raw Str(or(data.session_id, "demo-channel"))
+    id  if(starts-with(raw, "web:"), raw, `web:${raw}`)
+    ::transport/session-with-transport(::session/Session({id: id}), "web")
+}
+
+identity-from-data fn (data: Map): Identity {
+    user or(data.user, {})
+    id   Str(or(data.user_id, user.id, "demo-user"))
+    ::session/Identity({
+        id: id,
+        name: or(data.user_name, user.name, id),
+        meta: user,
+    })
+}
+
+make-memory fn (session: Session, identity: Identity): ::memory/AgentMemory {
+    ::memory/create-memory(AGENT_NAME, session, identity)
+}
+
+// Channel-keyed notification recipient. A team channel doesn't have a
+// "user inbox" per se — every channel member sees the same notifications
+// — so we use the session id (prefixed) as the recipient id.
+recipient-for fn (session: Session): Str {
+    `channel:${session.id}`
+}
+
+reply fn (data: Map, text: Str): Map {
+    payload {
+        session_id: or(data.session_id, ""),
+        message_id: or(data.message_id, ""),
+        text: text,
+    }
+    ::stream/emit-reply-start(STREAM_LABEL, {
+        session_id: payload.session_id,
+        message_id: payload.message_id,
+    })
+    ::stream/emit-reply-delta(STREAM_LABEL, {
+        session_id: payload.session_id,
+        message_id: payload.message_id,
+        delta: text,
+    })
+    ::stream/emit-reply-end(STREAM_LABEL, payload)
+    {ok: true, text: text}
+}
+
+// ----------------------------------------------------------------------------
+// Shared TurnConfig for free-chat / `/ask` / synthesis handlers
+// ----------------------------------------------------------------------------
+
+FREE_CHAT_SYSTEM "You are TeamAgent. Be concise and direct. Use the channel memory excerpts below as ground truth when relevant; otherwise answer normally. Cite who said what when you reference a memory."
+
+turn-cfg TurnConfig({
+    rt: rt,
+    agent-name: AGENT_NAME,
+    stream-label: STREAM_LABEL,
+    chat-opts: chat-opts,
+    system-base: FREE_CHAT_SYSTEM,
+})
+
+base-input fn (d: Map, session: Session, sender: Identity, text: Str): TurnInput {
+    TurnInput({
+        session: session,
+        sender: sender,
+        text: text,
+        attachments: null,
+        payload: {
+            session_id: or(d.session_id, ""),
+            message_id: or(d.message_id, ""),
+            timestamp:  or(d.timestamp, now()),
+        },
+        recall-opts: null,
+        memory-heading: "## Channel memory",
+        persist-user: null,
+        persist-assistant: null,
+        bind-tool-ctx: null,
+        ctx-extras: null,
+        user-source: "web",
+        user-metadata: null,
+        assistant-source: null,
+        assistant-metadata: null,
+        fallback-text: stub-or-null(),
+        system-override: null,
+    })
+}
+
+// `recent-channel-text` returns the last `limit` channel records as a
+// bulleted "sender: content" string, oldest → newest. Used by synthesis
+// commands (`/summary`, `/decisions`) where the transcript carries the
+// speaker names — `::ai::rag/recent-text` drops the sender, so we keep
+// this specialization in the demo. Assistant turns are filtered out
+// (chat-turn writes both sides now; the synthesis prompts should only
+// see what humans actually said).
+recent-channel-text fn (session: Session, limit: Int): Str {
+    records   if-err(::memory/list-session-records(make-memory(session, system-identity)), [])
+    user-rows filter(records, (r) {
+        role Str(or(get-in(r, ["metadata", "role"]), ""))
+        not(eq(role, "assistant"))
+    })
+    start max(0, sub(length(user-rows), limit))
+    tail  slice(user-rows, start, length(user-rows))
+    cond {
+        is-empty(tail) => { "" }
+        => {
+            lines map(tail, (r) {
+                who or(get-in(r, ["metadata", "sender-name"]), "unknown")
+                `- ${who}: ${r.content}`
+            })
+            join(lines, "\n")
+        }
+    }
+}
+
+// ============================================================================
+// Per-command event handlers
+// ============================================================================
+
+record-message
+meta {
+    doc: """
+    Free-chat entry point for TeamAgent.
+
+    Delegates to `::ai::agent::chat-turn/run-chat-turn`. The
+    orchestrator builds the system prompt against prior channel memory
+    (no self-poisoning), persists the user turn, streams the LLM reply,
+    and persists the assistant turn.
+    """,
+    agent: TeamAgent,
+    on-event: "team-agent:record",
+}
+fn (event) {
+    d       event.data
+    session session-from-data(d)
+    sender  identity-from-data(d)
+    atts    or(d.attachments, ::att/from-body(d))
+    text    Str(or(d.text, ""))
+    input   TurnInput({...untype(base-input(d, session, sender, text)), attachments: atts})
+    ::chat-turn/run-chat-turn(turn-cfg, input)
+}
+
+ask-question
+meta {
+    doc: """
+    LLM-backed Q&A grounded on channel memory.
+
+    Same lifecycle as `record-message` but the question is treated as
+    a transient query — we don't persist it to channel memory so the
+    transcript stays clean.
+    """,
+    agent: TeamAgent,
+    on-event: "team-agent:ask",
+}
+fn (event) {
+    d        event.data
+    session  session-from-data(d)
+    sender   identity-from-data(d)
+    atts     or(d.attachments, ::att/from-body(d))
+    question Str(or(d.question, d.text, ""))
+    base     base-input(d, session, sender, question)
+    input    TurnInput({
+        ...untype(base),
+        attachments: atts,
+        persist-user: false,
+        persist-assistant: false,
+    })
+    result   ::chat-turn/run-chat-turn(turn-cfg, input)
+    ::store/put(rt.state-store, `last-reply:${session.id}`, result.text)
+    result
+}
+
+DECISIONS_SYSTEM "You are TeamAgent. From the recent channel transcript below, extract THREE markdown sections: **Decisions** (concrete choices the team made), **Action items** (who-does-what-when), **Open questions** (unresolved). Cite the speaker in parentheses when known. Omit any section that has nothing concrete. If nothing relevant is present, say so plainly in one line. Never invent decisions or owners."
+
+SUMMARY_SYSTEM "You are TeamAgent. Produce a concise summary of the recent channel transcript below: 2-4 short bullets covering what's been discussed, any decisions reached, and where the conversation stands. Cite who said what when relevant. If the transcript is too thin to summarize meaningfully, say so plainly. Never invent content."
+
+run-synthesis fn (d: Map, session: Session, sender: Identity, system: Str): Map {
+    notes recent-channel-text(session, 50)
+    user-text cond {
+        is-empty(notes) => { "(no channel memory yet)" }
+        => { concat("Recent channel transcript:\n", notes) }
+    }
+    base base-input(d, session, sender, user-text)
+    input TurnInput({
+        ...untype(base),
+        persist-user: false,
+        persist-assistant: false,
+        system-override: system,
+    })
+    ::chat-turn/run-chat-turn(turn-cfg, input)
+}
+
+answer-decisions
+meta {
+    doc: """
+    LLM-backed decisions extractor: surfaces explicit decisions, action
+    items, and open questions from the recent transcript.
+    """,
+    agent: TeamAgent,
+    on-event: "team-agent:decisions",
+}
+fn (event) {
+    d       event.data
+    session session-from-data(d)
+    sender  identity-from-data(d)
+    run-synthesis(d, session, sender, DECISIONS_SYSTEM)
+}
+
+session-summary
+meta {
+    doc: "LLM-backed channel summary over the recent transcript.",
+    agent: TeamAgent,
+    on-event: "team-agent:summary",
+}
+fn (event) {
+    d       event.data
+    session session-from-data(d)
+    sender  identity-from-data(d)
+    run-synthesis(d, session, sender, SUMMARY_SYSTEM)
+}
+
+inspect-memory
+meta {
+    doc: "Reply with a memory inspection summary (capsules, graph nodes, edges).",
+    agent: TeamAgent,
+    on-event: "team-agent:memory",
+}
+fn (event) {
+    d       event.data
+    session session-from-data(d)
+    ::runtime/register-session(rt, session)
+    mem    make-memory(session, system-identity)
+    bundle ::memory/export-memory(mem)
+    inspection ::agent-memory/inspect-export(bundle, {
+        capsule-count: length(::memory/list-capsules(mem)),
+        graph-node-count: length(::memory/list-nodes(mem)),
+        graph-edge-count: length(::memory/list-edges(mem)),
+    })
+    reply(d, ::agent-memory/render-inspection(inspection))
+}
+
+memory-audit
+meta {
+    doc: "Reply with a count summary of memory artifacts (records, capsules, graph nodes).",
+    agent: TeamAgent,
+    on-event: "team-agent:audit",
+}
+fn (event) {
+    d       event.data
+    session session-from-data(d)
+    ::runtime/register-session(rt, session)
+    mem make-memory(session, system-identity)
+    text concat(
+        "Memory audit\n",
+        `Session records: ${length(::memory/list-session-records(mem))}\n`,
+        `Capsules: ${length(::memory/list-capsules(mem))}\n`,
+        `Graph nodes: ${length(::memory/list-nodes(mem))}\n`,
+        "Use /memory for details. Use /forget in the full TeamAgent demo when you need selective deletion."
+    )
+    reply(d, text)
+}
+
+show-guide
+meta {
+    doc: "Reply with the TeamAgent demo command guide.",
+    agent: TeamAgent,
+    on-event: "team-agent:guide",
+}
+fn (event) {
+    text """
+    TeamAgent demo guide
+    - Record (any non-slash message) stores a channel message in team memory.
+    - /ask <question> searches remembered channel context.
+    - /summary, /decisions surface recent records and action items.
+    - /inbox shows scheduled-job notifications (daily standup, stale decisions).
+    - /memory, /audit inspect the active session's memory scope.
+    - /whoami shows transport, session, and user identity.
+    """
+    reply(event.data, text)
+}
+
+show-inbox
+meta {
+    doc: """
+    Reply with the channel's notification inbox.
+
+    Scheduled handlers (daily-standup, stale-decision-check) write to a
+    channel-keyed recipient rather than a per-user one, so anyone on the
+    channel sees the same inbox.
+    """,
+    agent: TeamAgent,
+    on-event: "team-agent:inbox",
+}
+fn (event) {
+    d         event.data
+    session   session-from-data(d)
+    recipient recipient-for(session)
+    unread    ::notify/list-notifications(rt, recipient, {unread-only: true})
+    notifs cond {
+        not(is-empty(unread)) => { unread }
+        => { ::notify/list-notifications(rt, recipient, {limit: 5}) }
+    }
+    body ::notify/render-inbox(notifs)
+    ::notify/mark-all-read(rt, recipient)
+    reply(d, body)
+}
+
+// ============================================================================
+// Scheduled handlers
+// ============================================================================
+// Channel-scoped cron jobs. Each iterates the registered sessions and
+// writes notifications into the channel inbox. Memory hygiene (compact
+// + prune) follows the same shape as PersonalAgent — the only thing
+// that differs is the memory key (channel vs. person).
+
+STANDUP_SYSTEM "You are TeamAgent generating a weekday standup over the recent channel transcript below. Output three short markdown sections: **Yesterday** (1–3 bullets of what was discussed / decided), **Today** (open action items + suggested first move), **Blockers** (unresolved questions / waiting-on items). Cite speaker names in parentheses when relevant. Omit any section that has nothing concrete. Never invent."
+
+STALE_DECISIONS_SYSTEM "You are TeamAgent. From the recent channel transcript below, list ONLY: (1) decisions made more than 7 days ago that have no follow-up, and (2) open questions that haven't been answered. Use two short markdown sections (**Stale decisions**, **Unanswered questions**). Cite speaker names. If nothing is stale, reply with exactly: \"Nothing stale — the channel is current.\" Never invent."
+
+compact-stale
+meta {
+    doc: """
+    Daily compaction for every registered channel. Same shape as
+    PersonalAgent's compaction — distills the last 24h into a capsule.
+    """,
+    agent: TeamAgent,
+    schedule: "0 2 * * *",
+    retry: {attempts: 2, delay: 30000},
+}
+fn (event) {
+    ::lifecycle/compact-stale-sessions(rt, (session) {
+        mem make-memory(session, system-identity)
+        ::rag/compact-window-safe(mem, chat-opts, {
+            hours: 24,
+            limit: 50,
+        })
+    })
+}
+
+prune-raw
+meta {
+    doc: """
+    Daily retention pass. Drops raw channel records older than 30 days;
+    capsules stay.
+    """,
+    agent: TeamAgent,
+    schedule: "30 2 * * *",
+    retry: {attempts: 2, delay: 30000},
+}
+fn (event) {
+    policy ::agent-memory/RetentionPolicy({
+        name: "team-default",
+        raw-retention-secs: 2592000,
+        capsule-retention-secs: null,
+        compact-after-secs: null,
+        export-allowed: true,
+        forget-allowed: true,
+        metadata: {},
+    })
+    ::lifecycle/prune-sessions(rt, policy, (session) {
+        make-memory(session, system-identity)
+    })
+}
+
+daily-standup
+meta {
+    doc: """
+    Weekday standup post (09:00 UTC). Per channel, synthesizes a
+    Yesterday/Today/Blockers summary and writes it into the channel
+    inbox. `/inbox` surfaces it.
+    """,
+    agent: TeamAgent,
+    schedule: "0 9 * * 1-5",
+    retry: {attempts: 2, delay: 60000},
+}
+fn (event) {
+    ::lifecycle/run-session-job(rt, "daily-standup", (session) {
+        notes recent-channel-text(session, 50)
+        user-text cond {
+            is-empty(notes) => { "(no channel memory yet)" }
+            => { concat("Recent channel transcript:\n", notes) }
+        }
+        out ::synthesis/run-once(::synthesis/SynthesisInput({
+            chat-opts: chat-opts,
+            system: STANDUP_SYSTEM,
+            user-text: user-text,
+            fallback-text: stub-or-null(),
+        }))
+        ::notify/record-notification(rt, {
+            recipient-id: recipient-for(session),
+            session-id: session.id,
+            kind: "daily-standup",
+            body: out.text,
+            source: "team-agent:daily-standup",
+            meta: {ok: out.ok},
+        })
+    })
+}
+
+stale-decision-check
+meta {
+    doc: """
+    Weekly stale-decision sweep (Monday 10:00 UTC). Per channel,
+    surfaces decisions with no follow-up + unanswered questions and
+    writes them to the channel inbox. Skipped silently when nothing
+    is stale.
+    """,
+    agent: TeamAgent,
+    schedule: "0 10 * * 1",
+    retry: {attempts: 2, delay: 60000},
+}
+fn (event) {
+    ::lifecycle/run-session-job(rt, "stale-decision-check", (session) {
+        notes recent-channel-text(session, 200)
+        user-text cond {
+            is-empty(notes) => { "(no channel memory yet)" }
+            => { concat("Recent channel transcript:\n", notes) }
+        }
+        out ::synthesis/run-once(::synthesis/SynthesisInput({
+            chat-opts: chat-opts,
+            system: STALE_DECISIONS_SYSTEM,
+            user-text: user-text,
+            fallback-text: stub-or-null(),
+        }))
+        cond {
+            or(
+                contains(out.text, "Nothing stale"),
+                eq(out.text, OFFLINE_STUB),
+            ) => {
+                {ok: true, skipped: true}
+            }
+            => {
+                ::notify/record-notification(rt, {
+                    recipient-id: recipient-for(session),
+                    session-id: session.id,
+                    kind: "stale-decision-check",
+                    body: out.text,
+                    source: "team-agent:stale-decision-check",
+                    meta: null,
+                })
+            }
+        }
+    })
+}
+
+show-whoami
+meta {
+    doc: "Reply with the active session and user identity.",
+    agent: TeamAgent,
+    on-event: "team-agent:whoami",
+}
+fn (event) {
+    d       event.data
+    session session-from-data(d)
+    sender  identity-from-data(d)
+    transport ::transport/session-transport(session, "web")
+    text concat(
+        "Identity\n",
+        `Agent: ${AGENT_NAME}\n`,
+        `Transport: ${transport}\n`,
+        `Session: ${session.id}\n`,
+        `User: ${sender.id}\n`,
+        `Name: ${or(sender.name, sender.id)}\n`,
+        "Memory scope: team/session memory is keyed by the session; user identity is recorded with messages."
+    )
+    reply(d, text)
+}
