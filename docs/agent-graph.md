@@ -15,18 +15,18 @@ the effective event edge from the compiler.
 
 ## Demo Expectations
 
-`team-agent` should show the richest graph:
+`hot-chat` ships two agents (`team-agent`, `personal-agent`) that share
+the same per-command event pattern. Each slash command is one `on-event`
+handler — no central dispatch function, no big `cond`. Both agents should
+show a graph that is essentially:
 
-- `on-web-message` as the webhook trigger
-- `process-incoming` sends to `team-agent:record` and `team-agent:ask`
-- `remember-message` handles `team-agent:record`
-- `answer-question` handles `team-agent:ask`
+- one event node per command (`personal-agent:remember`,
+  `personal-agent:recall`, `team-agent:ask`, `team-agent:record`, …)
+- each handler emits `<agent>:reply:start` / `:delta` / `:end` stream
+  events back to the client
 
-`personal-agent` is intentionally smaller:
-
-- `on-web-message` is the primary trigger
-- command handling is direct, so there are no event fan-out edges yet
-- future command events should use `on-event` plus `sends`
+Add a command by writing one more `on-event` handler — the graph stays
+accurate without extra wiring.
 
 `graph-rag-memory` is memory-first rather than agent-first:
 

@@ -15,47 +15,23 @@ a pure walkthrough of how memory accumulates and is queried.
 
 ## Dependencies
 
-Until the graph helpers ship in `hot-ai`, this demo uses a local package
-path:
+Uses published `hot.dev/hot-ai` **1.4.0** from the Hot package registry —
+no sibling `hot` checkout required.
 
-```hot
-"hot.dev/hot-ai": { "local": "../../hot/hot/pkg/hot-ai" }
-```
-
-Override it if your checkout layout is different:
-
-```bash
-HOT_AI_PATH=/path/to/hot/hot/pkg/hot-ai hot test
-```
-
-After publishing, replace the local entry with the published version.
+No LLM or external API key is required. Without an embedding provider
+configured locally, the demo falls back to graph expansion so you still see
+citations.
 
 ## Tutorial
 
 ### Step 1: Verify Prerequisites
 
-Install the Hot CLI and confirm `hot dev` works. Keep the main `hot`
-repository as a sibling of this one:
-
-```text
-hot-dev/
-  hot/
-  hot-demos/
-```
-
-No LLM or external API key is required. Without an embedding provider, the
-demo falls back to graph expansion so you still see citations.
+Install the Hot CLI and confirm `hot dev` works.
 
 ### Step 2: Configure
 
 ```bash
 cp .env.example .env
-```
-
-If your repos aren't siblings:
-
-```bash
-export HOT_AI_PATH=/path/to/hot/hot/pkg/hot-ai
 ```
 
 ### Step 3: Run The Tests

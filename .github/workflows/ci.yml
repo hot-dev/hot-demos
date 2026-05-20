@@ -14,12 +14,6 @@ jobs:
       - name: Checkout hot-demos
         uses: actions/checkout@v4
 
-      - name: Checkout Hot for local package overrides
-        uses: actions/checkout@v4
-        with:
-          repository: hot-dev/hot
-          path: hot
-
       - name: Install Hot
         uses: hot-dev/setup-hot@v1
 
@@ -52,14 +46,8 @@ jobs:
       - name: Test hot-chat
         run: hot test
         working-directory: hot-chat
-        env:
-          HOT_AI_PATH: ../hot/hot/pkg/hot-ai
-          HOT_AI_AGENT_PATH: ../hot/hot/pkg/hot-ai-agent
-          HOT_ANTHROPIC_PATH: ../hot/hot/pkg/anthropic
 
       - name: Test graph-rag-memory
         run: hot test
         working-directory: graph-rag-memory
-        env:
-          HOT_AI_PATH: ../hot/hot/pkg/hot-ai
 

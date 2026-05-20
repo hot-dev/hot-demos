@@ -1,21 +1,23 @@
 # Hot Chat
 
 Hot Chat is a complete, runnable demo of two AI agents and a polished web UI
-that drives them — all in one Hot project.
+that drives them — all in one Hot project. It's the flagship Hot demo: the
+one to point at when someone asks *"what does a product on Hot look like?"*
 
-- **PersonalAgent** — identity-first memory. `/remember`, `/recall`, `/brief`,
-  `/export`. Memory is keyed by *user*; the same person sees their notes
-  across sessions.
-- **TeamAgent** — session-first memory. `/ask`, `/summary`, `/decisions`,
-  `/memory`. Memory is keyed by *channel*; two people in the same chat share
-  one view.
-- **Hot Chat (this app)** — a Next.js client that publishes one typed event
-  per message and renders the agent's reply over the run stream. Each
-  command is its own event handler in the agent — no central dispatch
-  function, no big cond.
+- **Personal Mode** — identity-first memory. `/remember`, `/recall`,
+  `/brief`, `/export`. Memory is keyed by *user*; the same person sees
+  their notes across sessions and devices.
+- **Team Mode** — session-first memory. `/ask`, `/summary`, `/decisions`,
+  `/memory`. Memory is keyed by *channel*; two people in the same chat
+  share one view.
+- **Next.js client (this app)** — a thin transport that publishes one
+  typed event per message and renders the agent's reply over the run
+  stream. Each slash command is its own `on-event` handler — no central
+  dispatch function, no big `cond`.
 
-Both agents live under `hot/src/` in this project and boot together with one
-`hot dev`. The Next.js side is a thin transport — the agent is the product.
+Both agents live under `hot/src/` in this project and boot together with
+one `hot dev`. The Next.js side is a thin transport — the agent is the
+product.
 
 ## What You'll Need
 
@@ -48,29 +50,31 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:3000>. The toolbar switches between PersonalAgent and
-TeamAgent live.
+Open <http://localhost:3000>. The toolbar switches between Personal and
+Team modes live.
 
 ## Suggested Walkthrough
 
-1. **PersonalAgent.** Type `/remember I prefer launch updates that start with
-   blockers` and press Enter — you'll see `remembered` stream into the
-   assistant bubble. Click **Recall preferences** (a quick-prompt chip) —
-   the matching note comes back. Refresh the browser; ask `/recall` again.
-   Same answer, because memory is keyed on you, not on the chat session.
-2. **Switch to TeamAgent.** Type *"we decided to ship docs before launch"*,
-   then *"CI is the only blocker"*. Now `/ask what is blocking launch?` —
-   the reply cites the matching record with attribution.
+1. **Personal Mode.** Type `/remember I prefer launch updates that start
+   with blockers` and press Enter — you'll see `remembered` stream into
+   the assistant bubble. Click **Recall preferences** (a quick-prompt
+   chip) — the matching note comes back. Refresh the browser; ask
+   `/recall` again. Same answer, because memory is keyed on you, not on
+   the chat session.
+2. **Switch to Team Mode.** Type *"we decided to ship docs before
+   launch"*, then *"CI is the only blocker"*. Now `/ask what is blocking
+   launch?` — the reply cites the matching record with attribution.
 3. **Drag a file in.** Drop a small `notes.md` or `screenshot.png` (under
-   4 MB) onto the chat. A chip appears below the composer; the next reply
-   notes how many attachments were carried.
+   4 MB) onto the chat. A chip appears below the composer; the next
+   reply notes how many attachments were carried.
 4. **Inspect identity.** Click *Identity* in the toolbar. You'll see the
-   exact `session_id` and `user_id` the agent is receiving — `person:<uuid>`
-   for PersonalAgent (memory follows the person), `web:chat:<uuid>` for
-   TeamAgent (memory follows the chat). Identity is `localStorage`-only.
+   exact `session_id` and `user_id` the agent is receiving —
+   `person:<uuid>` in Personal Mode (memory follows the person),
+   `web:chat:<uuid>` in Team Mode (memory follows the chat). Identity is
+   `localStorage`-only.
 5. **Open the Agent Graph.** In the Hot App, click into either agent and
-   open *Agent Graph*. Each slash command shows up as its own typed event
-   wired to its own handler — `team-agent:ask` to `ask-question`,
+   open *Agent Graph*. Each slash command shows up as its own typed
+   event wired to its own handler — `team-agent:ask` to `ask-question`,
    `team-agent:record` to `record-message`, and so on.
 
 ## Layout
@@ -90,9 +94,9 @@ hot-chat/
       team-agent.hot
 ```
 
-Both files are short, single-file agents. Diff them to see the
-*one* line of structural difference: PersonalAgent derives `session_id`
-from the identity; TeamAgent trusts the caller's `session_id`. That's the
+Both files are short, single-file agents. Diff them to see the *one*
+line of structural difference: Personal Mode derives `session_id` from
+the identity; Team Mode trusts the caller's `session_id`. That's the
 identity-first / session-first split made literal.
 
 ## Wire Contract
@@ -173,7 +177,7 @@ cd hot-demos/hot-chat && pnpm link --global @hot-dev/sdk
 
 ## Forking An Agent
 
-Want to ship just PersonalAgent (or just TeamAgent) into your own project?
+Want to ship just one mode into your own project?
 
 1. Copy `hot/src/<agent>.hot` into your Hot project's `hot/src/`.
 2. Copy `hot/test/<agent>.hot` into your `hot/test/`.
@@ -185,10 +189,16 @@ Want to ship just PersonalAgent (or just TeamAgent) into your own project?
    "hot.dev/anthropic":    "1.2.1",
    ```
 
-4. Rename the namespace in the source file to your agent's namespace (e.g.
-   `::personal-agent` → `::my-app`).
-5. Swap the system prompt, the commands, and the storage policy. Keep the
-   transport / runtime / stream helpers — that's what `hot-ai-agent` is for.
+4. Rename the namespace in the source file to your agent's namespace
+   (e.g. `::personal-agent` → `::my-app`).
+5. Swap the system prompt, the commands, and the storage policy. Keep
+   the transport / runtime / stream helpers — that's what `hot-ai-agent`
+   is for.
+
+For richer reference implementations, see the full TeamAgent and
+PersonalAgent in the main Hot repo (`hot/hot/src/team-agent/`,
+`hot/hot/src/personal-agent/`) — they add `/forget`, `/why`, `/export`,
+`/compact`, `/search`, scheduled digests, a `Researcher` peer, and more.
 
 ## Verification
 
