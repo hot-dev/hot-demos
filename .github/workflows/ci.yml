@@ -49,22 +49,17 @@ jobs:
         run: hot test
         working-directory: slack-bot
 
-      - name: Test team-agent
+      - name: Test hot-chat
         run: hot test
-        working-directory: team-agent
+        working-directory: hot-chat
         env:
           HOT_AI_PATH: ../hot/hot/pkg/hot-ai
           HOT_AI_AGENT_PATH: ../hot/hot/pkg/hot-ai-agent
-
-      - name: Test personal-agent
-        run: hot test
-        working-directory: personal-agent
-        env:
-          HOT_AI_PATH: ../hot/hot/pkg/hot-ai
-          HOT_AI_AGENT_PATH: ../hot/hot/pkg/hot-ai-agent
+          HOT_ANTHROPIC_PATH: ../hot/hot/pkg/anthropic
 
       - name: Test graph-rag-memory
         run: hot test
         working-directory: graph-rag-memory
         env:
           HOT_AI_PATH: ../hot/hot/pkg/hot-ai
+
