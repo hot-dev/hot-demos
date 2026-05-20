@@ -1,0 +1,26 @@
+// Hot Configuration File
+// Graph-RAG memory demo. Uses local hot-ai until the package version with graph memory is published.
+
+::hot::conf ns
+
+::env ::hot::env
+
+hot.set.profile "local-dev"
+hot.set.project "graph-rag-memory"
+hot.set.remote "hot-dev"
+
+hot.profile.local-dev.user.email "local@hot.dev"
+hot.profile.local-dev.org.slug "local"
+hot.profile.local-dev.env.name "development"
+
+hot.remote.hot-dev.url ::env/get("HOT_API_URL", "https://api.hot.dev")
+hot.remote.hot-dev.key ::env/get("HOT_API_KEY", "")
+
+hot.project.graph-rag-memory.src.paths ["./hot/src"]
+hot.project.graph-rag-memory.test.paths ["./hot/test"]
+hot.project.graph-rag-memory.test.capture true
+hot.project.graph-rag-memory.deps {
+    "hot.dev/hot-ai": { "local": ::env/get("HOT_AI_PATH", "../../hot/hot/pkg/hot-ai") },
+}
+
+hot.dev.open false

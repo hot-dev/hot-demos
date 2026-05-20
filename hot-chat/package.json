@@ -1,0 +1,29 @@
+{
+  "name": "hot-chat",
+  "version": "0.1.0",
+  "private": true,
+  "overrides": {
+    "postcss": "^8.5.10"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "dev:linked": "HOT_CHAT_LINKED_SDK=1 next dev --webpack",
+    "build": "next build",
+    "build:linked": "HOT_CHAT_LINKED_SDK=1 next build --webpack",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "link:sdk": "bash scripts/link-local-sdk.sh"
+  },
+  "dependencies": {
+    "@hot-dev/sdk": "^1.1.0",
+    "next": "^16.1.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,0 +1,24 @@
+// Hot Configuration File
+// Minimal configuration for local development.
+// Run `hot conf generate all` to see all available options.
+
+::hot::conf ns
+
+::env ::hot::env
+
+hot.set.project "hot-demos"
+hot.set.remote "hot-dev"
+
+// Remote API (hot.dev)
+hot.remote.hot-dev.url ::env/get("HOT_API_URL", "https://api.hot.dev")
+hot.remote.hot-dev.key ::env/get("HOT_API_KEY", "")
+
+// Project Configuration
+hot.project.hot-demos.src.paths ["./hot/src"]
+hot.project.hot-demos.test.paths ["./hot/test"]
+hot.project.hot-demos.resources.paths ["./hot/resources"]
+hot.project.hot-demos.deps {}
+
+// Dev Server Configuration
+// Open browser to app URL when running `hot dev`
+hot.dev.open false

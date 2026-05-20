@@ -1,3 +1,5 @@
 .hot/
 hot/ctx.hot
 .env
+**/dev.key
+*.key
