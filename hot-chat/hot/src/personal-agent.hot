@@ -18,6 +18,11 @@ meta {
     other agents inherit the correct ordering (in particular, no
     "RAG self-poisoning" where the just-submitted message appears in
     its own grounding context).
+
+    The full-featured PersonalAgent (with `/forget`, `/export`,
+    `/privacy`, `/inbox`, scheduled digests, a Researcher peer over
+    the `::ai::bus`, and more) lives in `hot/hot/src/personal-agent/`
+    in the main Hot repo.
     """
 }
 
@@ -26,14 +31,10 @@ meta {
 ::memory        ::ai::memory
 ::transport     ::ai::agent::transport
 ::runtime       ::ai::agent::runtime
-::agent-memory  ::ai::agent::memory
 ::att           ::ai::agent::attachments
 ::stream        ::ai::agent::stream
 ::chat-turn     ::ai::agent::chat-turn
 ::request       ::ai::agent::request
-::lifecycle    ::ai::agent::lifecycle
-::notify       ::ai::agent::notify
-::synthesis    ::ai::agent::synthesis
 ::rag           ::ai::rag
 ::ai-chat       ::ai::chat
 ::anth          ::anthropic::chat-tools
@@ -109,29 +110,17 @@ make-memory fn (session: Session, identity: Identity): ::memory/AgentMemory {
     ::memory/create-memory(AGENT_NAME, session, identity)
 }
 
-// Scheduled jobs run without a request context, so they reconstruct
-// the owning user from the session id. Personal sessions are always
-// `person:<user-id>` (see `session-from-data`), so we can split on the
-// prefix to recover a usable Identity.
-system-identity-for fn (session: Session): Identity {
-    raw Str(or(session.id, ""))
-    user-id cond {
-        starts-with(raw, "person:") => { slice(raw, length("person:"), length(raw)) }
-        => { raw }
-    }
-    ::session/Identity({id: user-id, name: user-id, meta: {}})
-}
-
 // `reply` packages a fully-formed final string as a `start` / `delta` /
 // `end` triple — the shape Hot Chat's client renders as an assistant
-// message. Slash-command handlers use this exclusively; they are
-// deterministic reports over the user's memory and never call an LLM.
+// message. Deterministic slash-command handlers (`/recall`, `/whoami`,
+// `/guide`) use this; LLM handlers stream through `chat-turn` instead.
 reply fn (data: Map, text: Str): Map {
     payload {
         session_id: or(data.session_id, ""),
         message_id: or(data.message_id, ""),
         text: text,
     }
+
     ::stream/emit-reply-start(STREAM_LABEL, {
         session_id: payload.session_id,
         message_id: payload.message_id,
@@ -145,14 +134,11 @@ reply fn (data: Map, text: Str): Map {
     {ok: true, text: text}
 }
 
-// `record-task-completion` is the single source of truth for "this
-// task got done". The `/done <task>` event handler and the LLM tool of
-// the same name both call this — symmetric write paths.
-//
-// Session and identity are recovered from per-run bindings (set by
-// `::ai::agent::request/bind`), so the LLM can't be tricked into
-// writing to another user's memory by passing a fake session in the
-// tool args.
+// `record-task-completion` is the LLM-callable task closer. The model
+// invokes it whenever the user reports finishing a task that appears in
+// memory (e.g. "I got a haircut" closes "TODO: get haircut"). Session
+// and identity come from the per-run `::ai::agent::request` bindings —
+// the model can't spoof them through tool arguments.
 record-task-completion
 meta {
     doc: """
@@ -185,19 +171,12 @@ fn (task: Str): Map {
     {ok: true, task: trimmed}
 }
 
-// Tools the LLM can call during free-chat / synthesis turns. Each
-// tool is a regular Hot function with a typed signature — `from-fn`
-// derives the JSON-schema the model sees. Tools recover the active
-// session and identity from `::ai::agent::request`.
 llm-tools [
     ::tool/from-fn(record-task-completion, {
         name: "record_task_completion",
     }),
 ]
 
-// Streaming chat options used by free-chat and synthesis handlers.
-// Pure slash commands (recall, memory, audit, export, privacy, guide,
-// whoami, done) stay deterministic and never touch this.
 chat-opts ::ai-chat/ChatOptions({
     chat-stream-fn: ::anth/chat-with-tools-stream,
     model: ::env/get("HOT_CHAT_MODEL", DEFAULT_MODEL),
@@ -247,53 +226,6 @@ base-input fn (d: Map, session: Session, sender: Identity, text: Str): TurnInput
     })
 }
 
-// ============================================================================
-// Per-command event handlers
-// ============================================================================
-
-remember-message
-meta {
-    doc: """
-    Free-chat / `/remember` entry point.
-
-    Delegates to `::ai::agent::chat-turn/run-chat-turn`, which enforces
-    the correct ordering: build memory-grounded system prompt → persist
-    user turn → bind per-request ctx for tools → stream LLM response →
-    persist assistant turn.
-    """,
-    agent: PersonalAgent,
-    on-event: "personal-agent:remember",
-}
-fn (event) {
-    d        event.data
-    sender   identity-from-data(d)
-    session  session-from-data(d, sender)
-    text     Str(or(d.text, ""))
-    atts     or(d.attachments, ::att/from-body(d))
-    input    TurnInput({...untype(base-input(d, session, sender, text)), attachments: atts})
-    ::chat-turn/run-chat-turn(turn-cfg, input)
-}
-
-recall-message
-meta {
-    doc: "Search personal memory for the user's query.",
-    agent: PersonalAgent,
-    on-event: "personal-agent:recall",
-}
-fn (event) {
-    d       event.data
-    sender  identity-from-data(d)
-    session session-from-data(d, sender)
-    ::runtime/register-session(rt, session)
-    query   Str(or(d.query, d.text, ""))
-    body    ::rag/build-context-safe(make-memory(session, sender), query, {limit: 5, min-score: 0.1})
-    text cond {
-        is-empty(body) => { "I do not have matching personal memory yet." }
-        => { concat("Personal memory:\n", body) }
-    }
-    reply(d, text)
-}
-
 BRIEF_SYSTEM `You are a personal assistant generating a concise daily brief. From the recent personal notes below, surface ONLY: stated preferences, active tasks, deadlines, and ongoing projects. Use short markdown sections (**Preferences**, **Tasks**, **Deadlines**, **Projects**). A task is closed when a later note explicitly marks it done — lines prefixed with \`DONE:\` or containing \`completed\` / \`finished\` / a clear past-tense report of doing it (e.g. "I got a haircut" closes "TODO: get haircut"). Do NOT list closed tasks. Omit any section that has nothing concrete. If nothing relevant is present, say so plainly in one line. Never invent facts about the user.`
 
 TASKS_SYSTEM `You are a personal assistant. From the recent personal notes below, extract ONLY OPEN tasks, commitments, follow-ups, and explicit next actions. A task is closed when a later note explicitly marks it done — lines prefixed with \`DONE:\` or containing \`completed\` / \`finished\` / a clear past-tense report of doing it (e.g. "I got a haircut" closes "TODO: get haircut"). Do NOT list closed tasks. Render the result as a single markdown checklist (\`- [ ] …\`). Ignore preferences, questions, and chitchat. If nothing is open, reply with exactly: "No open tasks in personal memory yet." Never invent tasks the user didn't state.`
@@ -311,6 +243,7 @@ run-synthesis fn (d: Map, session: Session, sender: Identity, system: Str): Map 
         is-empty(notes) => { "(no personal memory yet)" }
         => { concat("Recent personal notes:\n", notes) }
     }
+
     base base-input(d, session, sender, user-text)
     input TurnInput({
         ...untype(base),
@@ -320,6 +253,60 @@ run-synthesis fn (d: Map, session: Session, sender: Identity, system: Str): Map 
     })
     ::chat-turn/run-chat-turn(turn-cfg, input)
 }
+
+// ============================================================================
+// Per-command event handlers (grouped by role)
+// ============================================================================
+
+// --- Write -----------------------------------------------------------------
+
+remember-message
+meta {
+    doc: """
+    Free-chat / `/remember` entry point.
+
+    Delegates to `::ai::agent::chat-turn/run-chat-turn`, which enforces
+    the correct ordering: build memory-grounded system prompt → persist
+    user turn → bind per-request session/identity for tools → stream
+    LLM response → persist assistant turn.
+    """,
+    agent: PersonalAgent,
+    on-event: "personal-agent:remember",
+}
+fn (event) {
+    d        event.data
+    sender   identity-from-data(d)
+    session  session-from-data(d, sender)
+    text     Str(or(d.text, ""))
+    atts     or(d.attachments, ::att/from-body(d))
+    input    TurnInput({...untype(base-input(d, session, sender, text)), attachments: atts})
+    ::chat-turn/run-chat-turn(turn-cfg, input)
+}
+
+// --- Read ------------------------------------------------------------------
+
+recall-message
+meta {
+    doc: "Search personal memory for the user's query. Deterministic — works without an LLM key.",
+    agent: PersonalAgent,
+    on-event: "personal-agent:recall",
+}
+fn (event) {
+    d       event.data
+    sender  identity-from-data(d)
+    session session-from-data(d, sender)
+    ::runtime/register-session(rt, session)
+    query   Str(or(d.query, d.text, ""))
+    body    ::rag/build-context-safe(make-memory(session, sender), query, {limit: 5, min-score: 0.1})
+    text cond {
+        is-empty(body) => { "I do not have matching personal memory yet." }
+        => { concat("Personal memory:\n", body) }
+    }
+
+    reply(d, text)
+}
+
+// --- Synthesis (LLM) -------------------------------------------------------
 
 daily-brief
 meta {
@@ -344,7 +331,7 @@ fn (event) {
 task-inbox
 meta {
     doc: """
-    LLM-backed task inbox.
+    LLM-backed open-task list.
 
     Pulls the recent personal notes and asks the model to extract only
     OPEN tasks — i.e. tasks that haven't been closed by a later note
@@ -361,295 +348,7 @@ fn (event) {
     run-synthesis(d, session, sender, TASKS_SYSTEM)
 }
 
-inspect-memory
-meta {
-    doc: "Reply with a memory inspection summary (capsules, graph nodes, edges).",
-    agent: PersonalAgent,
-    on-event: "personal-agent:memory",
-}
-fn (event) {
-    d       event.data
-    sender  identity-from-data(d)
-    session session-from-data(d, sender)
-    ::runtime/register-session(rt, session)
-    mem    make-memory(session, sender)
-    bundle ::memory/export-memory(mem)
-    inspection ::agent-memory/inspect-export(bundle, {
-        capsule-count: length(::memory/list-capsules(mem)),
-        graph-node-count: length(::memory/list-nodes(mem)),
-        graph-edge-count: length(::memory/list-edges(mem)),
-    })
-    reply(d, ::agent-memory/render-inspection(inspection))
-}
-
-export-memory
-meta {
-    doc: "Reply with a portable export summary of the user's memory.",
-    agent: PersonalAgent,
-    on-event: "personal-agent:export",
-}
-fn (event) {
-    d       event.data
-    sender  identity-from-data(d)
-    session session-from-data(d, sender)
-    ::runtime/register-session(rt, session)
-    bundle ::memory/export-memory(make-memory(session, sender))
-    reply(d, ::agent-memory/render-export-summary(bundle))
-}
-
-show-privacy
-meta {
-    doc: "Reply with a privacy review for the user's memory.",
-    agent: PersonalAgent,
-    on-event: "personal-agent:privacy",
-}
-fn (event) {
-    d       event.data
-    sender  identity-from-data(d)
-    session session-from-data(d, sender)
-    ::runtime/register-session(rt, session)
-    mem    make-memory(session, sender)
-    bundle ::memory/export-memory(mem)
-    inspection ::agent-memory/inspect-export(bundle, {
-        capsule-count: length(::memory/list-capsules(mem)),
-        graph-node-count: length(::memory/list-nodes(mem)),
-        graph-edge-count: length(::memory/list-edges(mem)),
-    })
-    text concat(
-        "Privacy review\n",
-        ::agent-memory/render-inspection(inspection),
-        "\nUse /export to inspect portable memory. Use /forget in the full PersonalAgent demo to remove selected records."
-    )
-    reply(d, text)
-}
-
-mark-task-done
-meta {
-    doc: """
-    Mark a personal task complete.
-
-    Writes a `DONE: <task>` record into personal memory via the same
-    `record-task-completion` core function the LLM tool uses. `/tasks`
-    and `/brief` synthesis prompts treat that as the close signal and
-    filter the task out of the open list.
-    """,
-    agent: PersonalAgent,
-    on-event: "personal-agent:done",
-}
-fn (event) {
-    d       event.data
-    sender  identity-from-data(d)
-    session session-from-data(d, sender)
-    ::runtime/register-session(rt, session)
-    ::request/bind(session, sender, null)
-    task   Str(or(d.text, ""))
-    result record-task-completion(task)
-    reply(d, `Marked done: ${result.task}`)
-}
-
-show-guide
-meta {
-    doc: "Reply with the PersonalAgent demo command guide.",
-    agent: PersonalAgent,
-    on-event: "personal-agent:guide",
-}
-fn (event) {
-    text """
-    PersonalAgent demo guide
-    - /remember <text> stores a durable personal note.
-    - /done <task> marks a task complete (the LLM can also do this for
-      you when you mention finishing something in free chat).
-    - /recall <query> searches personal memory.
-    - /brief surfaces preferences, open tasks, deadlines, projects.
-    - /tasks surfaces only OPEN tasks and next actions.
-    - /inbox shows scheduled-job notifications (daily recaps, nudges).
-    - /memory, /audit, /privacy inspect the user's memory scope.
-    - /whoami shows the active person and session scope.
-    """
-    reply(event.data, text)
-}
-
-show-inbox
-meta {
-    doc: """
-    Reply with the user's notification inbox.
-
-    Scheduled handlers (daily-recap, stale-task-nudge) write their
-    output here instead of streaming to a non-existent client. The
-    inbox lists unread first, falling back to recent reads when the
-    unread bucket is empty.
-    """,
-    agent: PersonalAgent,
-    on-event: "personal-agent:inbox",
-}
-fn (event) {
-    d      event.data
-    sender identity-from-data(d)
-    unread ::notify/list-notifications(rt, sender.id, {unread-only: true})
-    notifs cond {
-        not(is-empty(unread)) => { unread }
-        => { ::notify/list-notifications(rt, sender.id, {limit: 5}) }
-    }
-    body ::notify/render-inbox(notifs)
-    ::notify/mark-all-read(rt, sender.id)
-    reply(d, body)
-}
-
-// ============================================================================
-// Scheduled handlers
-// ============================================================================
-// Cron jobs that run independently of any client request. They iterate
-// the registered sessions for this runtime and either maintain memory
-// hygiene (compact + prune) or write notifications into the user's
-// inbox (daily recap, stale-task nudge).
-//
-// All schedules below are in UTC. For a personal agent that wants to
-// land at "morning user-local" you'd add a user-timezone field to the
-// per-user state and gate the recipient inside the handler. For the
-// demo we keep it simple: one schedule for everyone.
-
-RECAP_SYSTEM `You are a personal assistant generating a short morning recap. From the recent personal notes below, write 2–4 short bullets covering: top open tasks, any deadlines in the next 24 hours, and one suggested first action for the day. Treat tasks as closed when a later note marks them done (lines prefixed with \`DONE:\` or containing \`completed\` / \`finished\`). Skip any section that has nothing concrete. Never invent. Output markdown.`
-
-STALE_TASK_SYSTEM `You are a personal assistant. From the recent personal notes below, list ONLY open tasks the user has mentioned but not closed. A task is closed when a later note explicitly marks it done (\`DONE:\` prefix or clear past-tense completion). Output a markdown checklist (\`- [ ] …\`). If nothing is genuinely open, reply with exactly: "Nothing stale — you're caught up." Never invent.`
-
-compact-stale
-meta {
-    doc: """
-    Daily compaction job. For every registered session, summarize the
-    last 24h of raw memory into a durable capsule. Keeps the recall
-    surface tight as raw memory grows.
-    """,
-    agent: PersonalAgent,
-    schedule: "0 2 * * *",
-    retry: {attempts: 2, delay: 30000},
-}
-fn (event) {
-    ::lifecycle/compact-stale-sessions(rt, (session) {
-        mem make-memory(session, system-identity-for(session))
-        ::rag/compact-window-safe(mem, chat-opts, {
-            hours: 24,
-            limit: 50,
-        })
-    })
-}
-
-prune-raw
-meta {
-    doc: """
-    Daily retention pass. Deletes raw session records older than 30
-    days. Capsules remain — they're the long-term carriers.
-    """,
-    agent: PersonalAgent,
-    schedule: "30 2 * * *",
-    retry: {attempts: 2, delay: 30000},
-}
-fn (event) {
-    policy ::agent-memory/RetentionPolicy({
-        name: "personal-default",
-        raw-retention-secs: 2592000,
-        capsule-retention-secs: null,
-        compact-after-secs: null,
-        export-allowed: true,
-        forget-allowed: true,
-        metadata: {},
-    })
-    ::lifecycle/prune-sessions(rt, policy, (session) {
-        make-memory(session, system-identity-for(session))
-    })
-}
-
-daily-recap
-meta {
-    doc: """
-    Weekday morning recap (08:00 UTC). For each registered user,
-    synthesize a short brief over their recent personal notes and write
-    it into their notification inbox. `/inbox` surfaces it.
-    """,
-    agent: PersonalAgent,
-    schedule: "0 8 * * 1-5",
-    retry: {attempts: 2, delay: 60000},
-}
-fn (event) {
-    ::lifecycle/run-session-job(rt, "daily-recap", (session) {
-        sender system-identity-for(session)
-        mem    make-memory(session, sender)
-        notes  ::rag/recent-text(mem, {
-            limit: 50,
-            exclude-roles: ["assistant"],
-        })
-        user-text cond {
-            is-empty(notes) => { "(no personal memory yet)" }
-            => { concat("Recent personal notes:\n", notes) }
-        }
-        out ::synthesis/run-once(::synthesis/SynthesisInput({
-            chat-opts: chat-opts,
-            system: RECAP_SYSTEM,
-            user-text: user-text,
-            fallback-text: stub-or-null(),
-        }))
-        notif ::notify/record-notification(rt, {
-            recipient-id: sender.id,
-            session-id: session.id,
-            kind: "daily-recap",
-            body: out.text,
-            source: "personal-agent:daily-recap",
-            meta: {ok: out.ok},
-        })
-        notif
-    })
-}
-
-stale-task-nudge
-meta {
-    doc: """
-    Daily nudge (12:00 UTC). Surfaces open tasks the user hasn't
-    closed and writes the list into their inbox. Skipped (silently)
-    when the synthesis returns the "nothing stale" sentinel.
-    """,
-    agent: PersonalAgent,
-    schedule: "0 12 * * *",
-    retry: {attempts: 2, delay: 60000},
-}
-fn (event) {
-    ::lifecycle/run-session-job(rt, "stale-task-nudge", (session) {
-        sender system-identity-for(session)
-        mem    make-memory(session, sender)
-        notes  ::rag/recent-text(mem, {
-            limit: 100,
-            exclude-roles: ["assistant"],
-        })
-        user-text cond {
-            is-empty(notes) => { "(no personal memory yet)" }
-            => { concat("Recent personal notes:\n", notes) }
-        }
-        out ::synthesis/run-once(::synthesis/SynthesisInput({
-            chat-opts: chat-opts,
-            system: STALE_TASK_SYSTEM,
-            user-text: user-text,
-            fallback-text: stub-or-null(),
-        }))
-        cond {
-            // Skip the nudge when the LLM said the user is caught up
-            // (or when offline — no point posting a stub nudge daily).
-            or(
-                contains(out.text, "Nothing stale"),
-                eq(out.text, OFFLINE_STUB),
-            ) => {
-                {ok: true, skipped: true}
-            }
-            => {
-                ::notify/record-notification(rt, {
-                    recipient-id: sender.id,
-                    session-id: session.id,
-                    kind: "stale-task-nudge",
-                    body: out.text,
-                    source: "personal-agent:stale-task-nudge",
-                    meta: null,
-                })
-            }
-        }
-    })
-}
+// --- Identity --------------------------------------------------------------
 
 show-whoami
 meta {
@@ -672,4 +371,36 @@ fn (event) {
         "Memory scope: personal memory is keyed first by user identity; the session is context."
     )
     reply(d, text)
+}
+
+// --- Help ------------------------------------------------------------------
+
+show-guide
+meta {
+    doc: "Reply with the PersonalAgent demo command guide.",
+    agent: PersonalAgent,
+    on-event: "personal-agent:guide",
+}
+fn (event) {
+    text """
+    PersonalAgent demo guide
+
+    Write
+    - /remember <text> stores a durable personal note.
+    - Free-chat messages also flow through /remember.
+
+    Read
+    - /recall <query> searches personal memory (deterministic; works offline).
+
+    Synthesis (LLM-backed)
+    - /brief surfaces preferences, open tasks, deadlines, projects.
+    - /tasks surfaces only OPEN tasks as a checklist.
+
+    Identity
+    - /whoami shows the active person and session scope.
+
+    The full PersonalAgent in the main Hot repo adds /forget, /export,
+    /privacy, /inbox, scheduled digests, and a Researcher peer.
+    """
+    reply(event.data, text)
 }

@@ -53,22 +53,18 @@ const AGENT_INFO: Record<AgentTarget, {
     initials: "TB",
     accent: "#ff5a3d",
     starterText: "/ask launch readiness",
+    // Quick-prompt chips are ordered by role: write → read → synthesis → identity.
     prompts: [
       { label: "Record a decision", text: "We decided to ship docs before launch." },
       { label: "Ask the team", text: "/ask what did we decide about launch readiness?" },
       {
         label: "Summary",
-        text: "/summary 24",
+        text: "/summary",
         send: true,
       },
       {
         label: "Decisions",
         text: "/decisions",
-        send: true,
-      },
-      {
-        label: "Memory",
-        text: "/memory",
         send: true,
       },
       {
@@ -84,9 +80,9 @@ const AGENT_INFO: Record<AgentTarget, {
     initials: "PA",
     accent: "#7c5cff",
     starterText: "/remember I prefer markdown briefs",
+    // Quick-prompt chips are ordered by role: write → read → synthesis → identity.
     prompts: [
       { label: "Remember a preference", text: "/remember I prefer launch updates that start with blockers." },
-      { label: "Mark done", text: "/done " },
       { label: "Recall preferences", text: "/recall launch update preferences" },
       {
         label: "Daily brief",
@@ -99,13 +95,8 @@ const AGENT_INFO: Record<AgentTarget, {
         send: true,
       },
       {
-        label: "Memory",
-        text: "/memory",
-        send: true,
-      },
-      {
-        label: "Export",
-        text: "/export",
+        label: "Identity",
+        text: "/whoami",
         send: true,
       },
     ],

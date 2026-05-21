@@ -6,10 +6,10 @@
 // Tests synthesize that envelope directly so they don't need the
 // platform's event bus.
 //
-// Recall-based handlers (`recall-message`, `daily-brief`, `task-inbox`)
-// are exercised end-to-end in the live demo; tests here cover the
-// dispatch shape, identity resolution, and writes that don't require
-// an embedding provider.
+// Synthesis handlers (`daily-brief`, `task-inbox`) are exercised
+// end-to-end in the live demo; tests here cover the dispatch shape,
+// identity resolution, and writes that don't require an embedding
+// provider.
 //
 // Free-chat handlers force the offline-stub path by clearing the
 // Anthropic key in ctx — keeps `hot test` hermetic and free.
@@ -26,8 +26,8 @@ base-data fn (user-id: Str, user-name: Str): Map {
     }
 }
 
-// Free-chat / `/remember` now persists the user turn into personal
-// memory AND streams a reply through the configured LLM. With no
+// Free-chat / `/remember` persists the user turn into personal memory
+// AND streams a reply through the configured LLM. With no
 // `ANTHROPIC_API_KEY` available in the test environment, the handler
 // falls back to a deterministic stub so this test stays hermetic. The
 // memory write still happens — exercised end-to-end by `/recall`,
@@ -39,6 +39,7 @@ fn () {
         ...base-data(`u-${Uuid()}`, "Ada"),
         text: "I prefer launch updates that start with blockers.",
     }
+
     result ::demo/remember-message(mk-event(data))
     assert(result.ok)
     assert(contains(result.text, "ANTHROPIC_API_KEY"))
@@ -52,21 +53,9 @@ fn () {
         text: "Launch checklist attached",
         attachments: [{name: "checklist.md", type: "text/markdown", size: 256, text: "checklist body"}],
     }
+
     result ::demo/remember-message(mk-event(data))
     assert(result.ok)
-}
-
-test-done-marks-completion
-meta ["test"]
-fn () {
-    data {
-        ...base-data(`u-${Uuid()}`, "Ada"),
-        text: "get haircut",
-    }
-    result ::demo/mark-task-done(mk-event(data))
-    assert(result.ok)
-    assert(contains(result.text, "Marked done"))
-    assert(contains(result.text, "get haircut"))
 }
 
 test-whoami-defaults-session-to-person
@@ -78,15 +67,6 @@ fn () {
     assert(contains(result.text, "User: u-ada"))
 }
 
-test-memory-inspection-runs
-meta ["test"]
-fn () {
-    data base-data(`u-${Uuid()}`, "Ada")
-    result ::demo/inspect-memory(mk-event(data))
-    assert(result.ok)
-    assert(contains(result.text, "Memory"))
-}
-
 test-guide-lists-commands
 meta ["test"]
 fn () {
@@ -94,55 +74,7 @@ fn () {
     result ::demo/show-guide(mk-event(data))
     assert(contains(result.text, "/remember"))
     assert(contains(result.text, "/recall"))
-    assert(contains(result.text, "/inbox"))
-}
-
-// Inbox + scheduled jobs.
-//
-// The cron handlers iterate the runtime's registered sessions, so we
-// drive a `/remember` first to put the user on the registry. Then we
-// invoke the schedule handler directly with a synthetic event (the
-// scheduler injects a similar `{data: {}}` envelope in production), and
-// finally read it back via `/inbox`.
-
-test-daily-recap-writes-notification-to-inbox
-meta ["test"]
-fn () {
-    user-id `u-recap-${Uuid()}`
-    base    {...base-data(user-id, "Ada"), text: "TODO: send launch update"}
-    ::demo/remember-message(mk-event(base))
-
-    ::demo/daily-recap(mk-event({}))
-
-    inbox-data base-data(user-id, "Ada")
-    result ::demo/show-inbox(mk-event(inbox-data))
-    assert(result.ok)
-    assert(contains(result.text, "daily-recap"))
-}
-
-test-stale-task-nudge-skips-when-offline-stub
-meta ["test"]
-fn () {
-    // Offline stub equals OFFLINE_STUB → handler's guard short-circuits
-    // and no notification is written. Reading the inbox should return
-    // the "No notifications." sentinel for this fresh user.
-    user-id `u-nudge-${Uuid()}`
-    base    {...base-data(user-id, "Ada"), text: "TODO: water plants"}
-    ::demo/remember-message(mk-event(base))
-
-    ::demo/stale-task-nudge(mk-event({}))
-
-    inbox-data base-data(user-id, "Ada")
-    result ::demo/show-inbox(mk-event(inbox-data))
-    assert(result.ok)
-    assert(contains(result.text, "No notifications"))
-}
-
-test-inbox-empty-by-default
-meta ["test"]
-fn () {
-    data base-data(`u-empty-${Uuid()}`, "Empty")
-    result ::demo/show-inbox(mk-event(data))
-    assert(result.ok)
-    assert(contains(result.text, "No notifications"))
+    assert(contains(result.text, "/brief"))
+    assert(contains(result.text, "/tasks"))
+    assert(contains(result.text, "/whoami"))
 }

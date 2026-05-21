@@ -6,10 +6,10 @@
 // Tests synthesize that envelope directly so they don't need the
 // platform's event bus.
 //
-// Recall-based handlers (`ask-question`, `daily-brief`-style commands)
-// are exercised end-to-end in the live demo; tests here cover the
-// dispatch shape, identity resolution, and writes that don't require
-// an embedding provider.
+// Recall-based handlers (`ask-question`, `session-summary`,
+// `answer-decisions`) are exercised end-to-end in the live demo;
+// tests here cover the dispatch shape, identity resolution, and
+// writes that don't require an embedding provider.
 //
 // Free-chat handlers force the offline-stub path by clearing the
 // Anthropic key in ctx — keeps `hot test` hermetic and free.
@@ -27,7 +27,7 @@ base-data fn (session-id: Str, user-id: Str, user-name: Str): Map {
     }
 }
 
-// Free-chat now persists the writer's message AND streams an LLM reply.
+// Free-chat persists the writer's message AND streams an LLM reply.
 // Without `ANTHROPIC_API_KEY` in the test environment, the handler
 // falls back to a deterministic stub so this test stays hermetic.
 test-record-message-persists-and-replies
@@ -37,6 +37,7 @@ fn () {
         ...base-data("test-channel", "u-1", "Ada"),
         text: "Sharing the launch plan",
     }
+
     result ::demo/record-message(mk-event(data))
     assert(result.ok)
     assert(contains(result.text, "ANTHROPIC_API_KEY"))
@@ -50,6 +51,7 @@ fn () {
         text: "Sharing the launch plan",
         attachments: [{name: "launch.txt", type: "text/plain", size: 42, text: "blockers"}],
     }
+
     result ::demo/record-message(mk-event(data))
     assert(result.ok)
 }
@@ -87,67 +89,13 @@ fn () {
     assert(contains(result.text, "User: u-1"))
 }
 
-test-memory-inspection-runs
-meta ["test"]
-fn () {
-    data base-data(`mem-${Uuid()}`, "u-1", "Ada")
-    result ::demo/inspect-memory(mk-event(data))
-    assert(result.ok)
-    assert(contains(result.text, "Memory"))
-}
-
 test-guide-lists-commands
 meta ["test"]
 fn () {
     data base-data("standup", "u-1", "Ada")
     result ::demo/show-guide(mk-event(data))
     assert(contains(result.text, "/ask"))
-    assert(contains(result.text, "Record"))
-    assert(contains(result.text, "/inbox"))
-}
-
-// Scheduled handlers + channel inbox.
-//
-// `recipient-for` keys notifications by `channel:web:<session-id>`, so
-// /inbox surfaces them per-channel rather than per-user. Drive a
-// /record first to register the session on the runtime, then invoke
-// the schedule directly and read back.
-
-test-daily-standup-writes-notification-to-channel-inbox
-meta ["test"]
-fn () {
-    session-id `standup-${Uuid()}`
-    base base-data(session-id, "u-1", "Ada")
-    ::demo/record-message(mk-event({...base, text: "Shipping the migration today."}))
-
-    ::demo/daily-standup(mk-event({}))
-
-    result ::demo/show-inbox(mk-event(base))
-    assert(result.ok)
-    assert(contains(result.text, "daily-standup"))
-}
-
-test-stale-decision-check-skips-when-offline-stub
-meta ["test"]
-fn () {
-    // Same shape as the personal stale-task nudge: the offline stub
-    // matches the agent's guard, no notification gets written.
-    session-id `stale-${Uuid()}`
-    base base-data(session-id, "u-1", "Ada")
-    ::demo/record-message(mk-event({...base, text: "Decision: ship on Friday."}))
-
-    ::demo/stale-decision-check(mk-event({}))
-
-    result ::demo/show-inbox(mk-event(base))
-    assert(result.ok)
-    assert(contains(result.text, "No notifications"))
-}
-
-test-inbox-empty-by-default
-meta ["test"]
-fn () {
-    data base-data(`empty-${Uuid()}`, "u-1", "Ada")
-    result ::demo/show-inbox(mk-event(data))
-    assert(result.ok)
-    assert(contains(result.text, "No notifications"))
+    assert(contains(result.text, "/summary"))
+    assert(contains(result.text, "/decisions"))
+    assert(contains(result.text, "/whoami"))
 }

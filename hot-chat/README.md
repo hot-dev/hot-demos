@@ -7,11 +7,11 @@ several Hot Dev platform features that combine into a powerful solution for
 AI-driven products.
 
 - **Personal Mode** — identity-first memory. `/remember`, `/recall`,
-  `/brief`, `/export`. Memory is keyed by *user*; the same person sees
+  `/brief`, `/tasks`. Memory is keyed by *user*; the same person sees
   their notes across sessions and devices.
-- **Team Mode** — session-first memory. `/ask`, `/summary`, `/decisions`,
-  `/memory`. Memory is keyed by *channel*; two people in the same chat
-  share one view.
+- **Team Mode** — session-first memory. `/ask`, `/summary`,
+  `/decisions`. Memory is keyed by *channel*; two people in the same
+  chat share one view.
 - **Next.js client (this app)** — a thin transport that publishes one
   typed event per message and renders the agent's reply over the run
   stream. Each slash command is its own `on-event` handler — no central

@@ -32,29 +32,24 @@ export interface AgentEvent {
   eventData: Record<string, unknown>;
 }
 
+// Commands are listed in role order: write → read → synthesis → identity → help.
+// Free-chat (`/record` for team, fallback to `/remember` for personal) is the
+// "write" path and lives in FALLBACK_RECORD below — it isn't a slash command.
 const COMMANDS: Record<AgentTarget, CommandMap> = {
   "team-agent": {
     ask: { event: "team-agent:ask", argKey: "question" },
     summary: { event: "team-agent:summary" },
     decisions: { event: "team-agent:decisions" },
-    inbox: { event: "team-agent:inbox" },
-    memory: { event: "team-agent:memory" },
-    audit: { event: "team-agent:audit" },
-    guide: { event: "team-agent:guide" },
     whoami: { event: "team-agent:whoami" },
+    guide: { event: "team-agent:guide" },
   },
   "personal-agent": {
     remember: { event: "personal-agent:remember", argKey: "text" },
-    done: { event: "personal-agent:done", argKey: "text" },
     recall: { event: "personal-agent:recall", argKey: "query" },
     brief: { event: "personal-agent:brief" },
     tasks: { event: "personal-agent:tasks" },
-    inbox: { event: "personal-agent:inbox" },
-    memory: { event: "personal-agent:memory" },
-    export: { event: "personal-agent:export" },
-    privacy: { event: "personal-agent:privacy" },
-    guide: { event: "personal-agent:guide" },
     whoami: { event: "personal-agent:whoami" },
+    guide: { event: "personal-agent:guide" },
   },
 };
 
