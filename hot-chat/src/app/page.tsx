@@ -189,6 +189,7 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [streamId, setStreamId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showIdentity, setShowIdentity] = useState(false);
@@ -198,6 +199,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const dragDepthRef = useRef(0);
+  const streamIdRef = useRef<string | null>(null);
 
   const agent = AGENT_INFO[target];
 
@@ -246,6 +248,8 @@ export default function Home() {
     setMessages([]);
     setAttachments([]);
     setInput("");
+    setStreamId(null);
+    streamIdRef.current = null;
     setErrorBanner(null);
   }, []);
 
@@ -291,6 +295,7 @@ export default function Home() {
           target,
           text: trimmed,
           chatId,
+          streamId: streamIdRef.current,
           userId,
           userName,
           attachments: sentAttachments,
@@ -301,7 +306,12 @@ export default function Home() {
       let finalText: string | null = null;
 
       for await (const chunk of replyStream) {
-        if (chunk.type === "delta") {
+        if (chunk.type === "published") {
+          if (chunk.streamId && !streamIdRef.current) {
+            streamIdRef.current = chunk.streamId;
+            setStreamId(chunk.streamId);
+          }
+        } else if (chunk.type === "delta") {
           acc += chunk.text;
           setMessages((prev) =>
             prev.map((message) =>
@@ -411,6 +421,8 @@ export default function Home() {
     setMessages([]);
     setAttachments([]);
     setInput("");
+    setStreamId(null);
+    streamIdRef.current = null;
     setErrorBanner(null);
   }, []);
 
@@ -482,6 +494,10 @@ export default function Home() {
               <div>
                 <span>User identity</span>
                 <code>web:user:{userId}</code>
+              </div>
+              <div>
+                <span>Stream</span>
+                <code>{streamId ?? "created on first send"}</code>
               </div>
             </div>
           </div>

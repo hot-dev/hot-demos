@@ -21,6 +21,7 @@ export interface AgentChatRequest {
   target: AgentTarget;
   text: string;
   chatId: string;
+  streamId?: string | null;
   userId: string;
   userName: string;
   attachments?: AgentAttachment[];
@@ -119,6 +120,7 @@ export async function* streamFromAgent(input: AgentChatRequest): AsyncGenerator<
     body: JSON.stringify({
       eventType: event.eventType,
       eventData: event.eventData,
+      ...(input.streamId ? { streamId: input.streamId } : {}),
     }),
   });
 

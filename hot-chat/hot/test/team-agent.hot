@@ -65,6 +65,19 @@ fn () {
     assert(result.ok)
 }
 
+test-recent-channel-text-includes-speaker-name
+meta ["test"]
+fn () {
+    session-id `speaker-${Uuid()}`
+    base base-data(session-id, "u-1", "Ada")
+    ::demo/record-message(mk-event({...base, text: "Decision: eat tacos for lunch."}))
+
+    session ::demo/session-from-data(base)
+    notes   ::demo/recent-channel-text(session, 10)
+    assert(contains(notes, "Ada"))
+    assert(not(contains(notes, "unknown")))
+}
+
 test-whoami-includes-session-and-user
 meta ["test"]
 fn () {

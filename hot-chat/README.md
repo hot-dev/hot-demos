@@ -105,7 +105,9 @@ identity-first / session-first split made literal.
 
 Hot Chat's browser code parses slash commands client-side and POSTs the
 typed event to the Next.js server route, which forwards it (with the
-API key) to Hot's `/v1/streams/subscribe-with-event`:
+API key) to Hot's `/v1/streams/subscribe-with-event`. The first message in a
+browser chat omits `stream_id`; Hot returns one in `event:published`, and the
+client reuses that stream for later messages in the same chat:
 
 ```json
 {
@@ -119,7 +121,8 @@ API key) to Hot's `/v1/streams/subscribe-with-event`:
     "question":    "what's blocking launch?",
     "attachments": [{"name": "notes.md", "type": "text/markdown", "size": 412, "text": "…"}],
     "metadata":    {"client": "hot-chat", "target": "team-agent"}
-  }
+  },
+  "stream_id": "optional-existing-stream-uuid"
 }
 ```
 

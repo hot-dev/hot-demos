@@ -188,9 +188,9 @@ base-input fn (d: Map, session: Session, sender: Identity, text: Str): TurnInput
 // (chat-turn writes both sides now; the synthesis prompts should only
 // see what humans actually said).
 recent-channel-text fn (session: Session, limit: Int): Str {
-    records   if-err(::memory/list-session-records(make-memory(session, system-identity)), [])
-    user-rows filter(records, (r) {
-        role Str(or(get-in(r, ["metadata", "role"]), ""))
+    entries   if-err(::store/list(make-memory(session, system-identity).session-store), [])
+    user-rows filter(entries, (r) {
+        role Str(or(get-in(r, ["value", "metadata", "role"]), ""))
         not(eq(role, "assistant"))
     })
     start max(0, sub(length(user-rows), limit))
@@ -199,8 +199,9 @@ recent-channel-text fn (session: Session, limit: Int): Str {
         is-empty(tail) => { "" }
         => {
             lines map(tail, (r) {
-                who or(get-in(r, ["metadata", "sender-name"]), "unknown")
-                `- ${who}: ${r.content}`
+                who     or(get-in(r, ["value", "sender-name"]), "unknown")
+                content or(get-in(r, ["value", "content"]), "")
+                `- ${who}: ${content}`
             })
             join(lines, "\n")
         }
