@@ -1,8 +1,10 @@
 # Hot Chat
 
 Hot Chat is a complete, runnable demo of two AI agents and a polished web UI
-that drives them — all in one Hot project. It's the flagship Hot demo: the
-one to point at when someone asks *"what does a product on Hot look like?"*
+that drives them — all in one Hot project. It's the demo to point at when
+someone asks *"what does a product on Hot look like?"* — the culmination of
+several Hot Dev platform features that combine into a powerful solution for
+AI-driven products.
 
 - **Personal Mode** — identity-first memory. `/remember`, `/recall`,
   `/brief`, `/export`. Memory is keyed by *user*; the same person sees
@@ -129,7 +131,7 @@ adapter can publish the same events from native message shapes.
 ## Environment
 
 ```bash
-HOT_AGENT_BASE_URL=http://localhost:4681   # Hot runtime
+HOT_API_URL=http://localhost:4681          # Hot runtime
 HOT_API_KEY=<service key>                  # server-side only
 HOT_AGENT_TARGET=personal-agent            # default agent on first load
 ```

@@ -10,7 +10,7 @@ others.
 
 | Project            | What it is                                                                 |
 |--------------------|----------------------------------------------------------------------------|
-| `hot-chat`         | **Flagship demo.** Next.js chat UI plus TeamAgent and PersonalAgent in one `hot dev` |
+| `hot-chat`         | **Start here.** Next.js chat UI plus TeamAgent and PersonalAgent in one `hot dev` |
 | `slack-bot`        | multi-provider AI Slack bot (Claude / GPT / Grok / Gemini), polling-in-dev / webhooks-in-prod |
 | `my-news`          | scheduled job that summarizes AI news with Claude and emails via Resend    |
 | `graph-rag-memory` | graph-RAG memory primitives and hybrid retrieval (function-driven)         |

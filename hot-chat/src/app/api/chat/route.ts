@@ -2,7 +2,7 @@ import { HotClient } from "@hot-dev/sdk";
 import { createHotProxyRoute } from "@hot-dev/sdk/proxy";
 
 const hot = new HotClient({
-  baseUrl: process.env.HOT_AGENT_BASE_URL || "http://localhost:4681",
+  baseUrl: process.env.HOT_API_URL || "http://localhost:4681",
   token: process.env.HOT_API_KEY ?? "",
 });
 

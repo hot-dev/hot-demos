@@ -30,7 +30,7 @@ meta {
 ::att           ::ai::agent::attachments
 ::stream        ::ai::agent::stream
 ::chat-turn     ::ai::agent::chat-turn
-::actx          ::ai::agent::ctx
+::request       ::ai::agent::request
 ::lifecycle    ::ai::agent::lifecycle
 ::notify       ::ai::agent::notify
 ::synthesis    ::ai::agent::synthesis
@@ -149,8 +149,8 @@ reply fn (data: Map, text: Str): Map {
 // task got done". The `/done <task>` event handler and the LLM tool of
 // the same name both call this — symmetric write paths.
 //
-// Session and identity are recovered from per-run ctx (set by
-// `::ai::agent::ctx/bind-request`), so the LLM can't be tricked into
+// Session and identity are recovered from per-run bindings (set by
+// `::ai::agent::request/bind`), so the LLM can't be tricked into
 // writing to another user's memory by passing a fake session in the
 // tool args.
 record-task-completion
@@ -164,9 +164,9 @@ meta {
     """
 }
 fn (task: Str): Map {
-    raw-id   or(::actx/current-user-id(),    "demo-user")
-    raw-name or(::actx/current-user-name(),  raw-id)
-    sid      or(::actx/current-session-id(), `person:${raw-id}`)
+    raw-id   or(::request/user-id(),    "demo-user")
+    raw-name or(::request/user-name(),  raw-id)
+    sid      or(::request/session-id(), `person:${raw-id}`)
     sender   ::session/Identity({id: raw-id, name: raw-name, meta: {}})
     session  ::transport/session-with-transport(::session/Session({id: sid}), "web")
     trimmed  if(is-empty(task), "(unnamed task)", task)
@@ -188,7 +188,7 @@ fn (task: Str): Map {
 // Tools the LLM can call during free-chat / synthesis turns. Each
 // tool is a regular Hot function with a typed signature — `from-fn`
 // derives the JSON-schema the model sees. Tools recover the active
-// session and identity from `::ai::agent::ctx`.
+// session and identity from `::ai::agent::request`.
 llm-tools [
     ::tool/from-fn(record-task-completion, {
         name: "record_task_completion",
@@ -441,7 +441,7 @@ fn (event) {
     sender  identity-from-data(d)
     session session-from-data(d, sender)
     ::runtime/register-session(rt, session)
-    ::actx/bind-request(session, sender, null)
+    ::request/bind(session, sender, null)
     task   Str(or(d.text, ""))
     result record-task-completion(task)
     reply(d, `Marked done: ${result.task}`)
