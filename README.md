@@ -33,6 +33,13 @@ Run tests:
 hot test
 ```
 
+## Context Variables
+
+Some demos include `hot/ctx.hot` as a local-development convenience for
+bridging values from `.env` into Hot context variables. Hot Dev Cloud ignores
+`hot/ctx.hot`; for deployed demos, add the same context variables in the Hot
+Dev App at [app.hot.dev](https://app.hot.dev) instead.
+
 ## Package Dependencies
 
 Demos use published Hot packages from the registry so they work with a

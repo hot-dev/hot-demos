@@ -11,7 +11,7 @@ export const POST = createHotProxyRoute(hot, {
     new Response(
       JSON.stringify({
         error:
-          "HOT_API_KEY is not set. Create a service key in the Hot App (Service Keys → New) and add HOT_API_KEY to .env.",
+          "HOT_API_KEY is not set. Create an API key in the Hot App (API Keys → New Key) and add HOT_API_KEY to .env.",
       }),
       {
         status: 500,

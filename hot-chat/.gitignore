@@ -3,3 +3,5 @@ node_modules/
 .env
 .hot/
 *.tsbuildinfo
+hot/ctx.hot
+hot/dev.key

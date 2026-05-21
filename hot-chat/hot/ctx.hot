@@ -3,9 +3,12 @@ meta {
     doc: """
     Per-run context bridge for Hot Chat.
 
-    Hot runs this file at startup. Provider adapters like
+    Local `hot dev` runs this file at startup. Provider adapters like
     `::anthropic::api` read their credentials from `::hot::ctx`, so we
     forward selected env vars from `.env` into the live context here.
+
+    Hot Dev Cloud ignores `hot/ctx.hot`. For deployed apps, add these
+    context variables in the Hot Dev App instead.
 
     Add new provider keys (OpenAI, xAI, Gemini, …) by following the same
     `::hot::env/get("FOO_API_KEY", "")` pattern below.

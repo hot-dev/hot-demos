@@ -25,7 +25,7 @@ product.
 
 - **Hot CLI** — [hot.dev/download](https://hot.dev/download)
 - **Node 20+** for the Next.js app
-- **A Hot service key** for your local dev environment (one-time, see below)
+- **A Hot API key** for your local dev environment (one-time, see below)
 - No LLM API keys — the demo agents answer from local memory.
 
 ## Run It
@@ -40,14 +40,14 @@ hot dev --open
 `hot dev` opens the Hot App at <http://localhost:4681> and registers both
 agents under one project. Leave it running.
 
-While the Hot App is open, generate a service key:
+While the Hot App is open, generate an API key:
 
-> *Hot App → Service Keys → New Key.* Copy the value.
+> *Hot App → API Keys → New Key.* Copy the value.
 
 ```bash
 # terminal 2 — chat UI
 cp .env.example .env
-# paste the service key into HOT_API_KEY in .env
+# paste the API key into HOT_API_KEY in .env
 npm install
 npm run dev
 ```
@@ -105,7 +105,7 @@ identity-first / session-first split made literal.
 
 Hot Chat's browser code parses slash commands client-side and POSTs the
 typed event to the Next.js server route, which forwards it (with the
-service key) to Hot's `/v1/streams/subscribe-with-event`:
+API key) to Hot's `/v1/streams/subscribe-with-event`:
 
 ```json
 {
@@ -132,7 +132,7 @@ adapter can publish the same events from native message shapes.
 
 ```bash
 HOT_API_URL=http://localhost:4681          # Hot runtime
-HOT_API_KEY=<service key>                  # server-side only
+HOT_API_KEY=<api key>                      # server-side only
 HOT_AGENT_TARGET=personal-agent            # default agent on first load
 ```
 

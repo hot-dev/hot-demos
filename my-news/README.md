@@ -20,7 +20,11 @@ Hint: use `hot dev --open` to open the Hot Dev App in a browser.
 
 ### Configure It
 
-1. Use the app to add your Context Variables for `anthropic.api.key` and `resend.api.key`.  This process is similar for production.  For local development, you can also use a `hot/ctx.hot` file (ignored by git) with the following contents:
+1. Use the local Hot Dev App to add your Context Variables for
+   `anthropic.api.key` and `resend.api.key`. For local development only, you
+   can also use a `hot/ctx.hot` file (ignored by git) with the following
+   contents. Hot Dev Cloud ignores `hot/ctx.hot`; for deployed apps, add the
+   same variables in the Hot Dev App at [app.hot.dev](https://app.hot.dev).
 
 ```hot
 ::hot::run::ctx ns
