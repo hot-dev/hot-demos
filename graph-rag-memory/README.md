@@ -15,7 +15,7 @@ a pure walkthrough of how memory accumulates and is queried.
 
 ## Dependencies
 
-Uses published `hot.dev/hot-ai` **1.4.0** from the Hot package registry —
+Uses published `hot.dev/hot-ai` **1.5.0** from the Hot package registry —
 no sibling `hot` checkout required.
 
 No LLM or external API key is required. Without an embedding provider
