@@ -6,10 +6,10 @@ someone asks *"what does a product on Hot look like?"* — the culmination of
 several Hot Dev platform features that combine into a powerful solution for
 AI-driven products.
 
-- **Personal Mode** — identity-first memory. `/remember`, `/recall`,
+- **PersonalAgent** — identity-first memory. `/remember`, `/recall`,
   `/brief`, `/tasks`. Memory is keyed by *user*; the same person sees
   their notes across sessions and devices.
-- **Team Mode** — session-first memory. `/ask`, `/summary`,
+- **TeamAgent** — session-first memory. `/ask`, `/summary`,
   `/decisions`. Memory is keyed by *channel*; two people in the same
   chat share one view.
 - **Next.js client (this app)** — a thin transport that publishes one
@@ -21,12 +21,20 @@ Both agents live under `hot/src/` in this project and boot together with
 one `hot dev`. The Next.js side is a thin transport — the agent is the
 product.
 
+> **Note:** This demo has been improved since the original
+> [blog post](https://hot.dev/blog/build-ai-agents) and
+> [video](https://www.youtube.com/watch?v=WubNrFsbC5U) to support OpenAI for
+> both the LLM and embeddings. Using OpenAI embeddings avoids the video step
+> where the default embedder downloads a local model. Your choice.
+
 ## What You'll Need
 
 - **Hot CLI** — [hot.dev/download](https://hot.dev/download)
 - **Node 20+** for the Next.js app
 - **A Hot API key** for your local dev environment (one-time, see below)
-- No LLM API keys — the demo agents answer from local memory.
+- No LLM API keys are required to launch the UI. Add `ANTHROPIC_API_KEY` or
+  `OPENAI_API_KEY` for live streamed replies; without one, LLM-backed commands
+  use a deterministic offline stub.
 
 ## Run It
 
@@ -64,8 +72,10 @@ Team modes live.
    `/recall` again. Same answer, because memory is keyed on you, not on
    the chat session.
 2. **Switch to Team Mode.** Type *"we decided to ship docs before
-   launch"*, then *"CI is the only blocker"*. Now `/ask what is blocking
-   launch?` — the reply cites the matching record with attribution.
+   launch"*, then *"CI is the only blocker"*. With an Anthropic or OpenAI key
+   configured, `/ask what is blocking launch?` streams a grounded reply that
+   cites the matching record with attribution. Without a key, the command takes
+   the same path up to the LLM call and then returns the offline stub.
 3. **Drag a file in.** Drop a small `notes.md` or `screenshot.png` (under
    4 MB) onto the chat. A chip appears below the composer; the next
    reply notes how many attachments were carried.
@@ -96,10 +106,10 @@ hot-chat/
       team-agent.hot
 ```
 
-Both files are short, single-file agents. Diff them to see the *one*
-line of structural difference: Personal Mode derives `session_id` from
-the identity; Team Mode trusts the caller's `session_id`. That's the
-identity-first / session-first split made literal.
+Both files are short, single-file agents. Diff them to see the main
+architectural difference: PersonalAgent derives `session_id` from the identity;
+TeamAgent trusts the caller's `session_id`. That's the identity-first /
+session-first split made literal.
 
 ## Wire Contract
 
@@ -137,11 +147,34 @@ adapter can publish the same events from native message shapes.
 HOT_API_URL=http://localhost:4681          # Hot runtime
 HOT_API_KEY=<api key>                      # server-side only
 HOT_AGENT_TARGET=personal-agent            # default agent on first load
+HOT_CHAT_PROVIDER=auto                     # auto, anthropic, or openai
+HOT_CHAT_MODEL=                            # optional; e.g. claude-sonnet-4-5 or gpt-4o-mini
+ANTHROPIC_API_KEY=                         # optional; required for Anthropic chat
+OPENAI_API_KEY=                            # optional; required for OpenAI chat and/or embeddings
+HOT_CHAT_EMBEDDING_PROVIDER=               # optional; set to openai for OpenAI embeddings
 ```
 
 The browser calls Next.js's `/api/chat` route; only the server route holds
 `HOT_API_KEY`, exactly the way every Next.js app keeps a `DATABASE_URL`
 out of the browser.
+
+Chat and embeddings are configured independently. `HOT_CHAT_PROVIDER=auto`
+infers the chat provider from `HOT_CHAT_MODEL` when set, otherwise it uses an
+available Anthropic or OpenAI key. Memory search uses `::hot::store` embeddings;
+leave `HOT_CHAT_EMBEDDING_PROVIDER` unset for the default embedding path, or set
+`HOT_CHAT_EMBEDDING_PROVIDER=openai` with `OPENAI_API_KEY` to use
+`::openai::embeddings/create` as `embed-fn` / `embed-batch-fn`.
+
+`hot/ctx.hot` is a local development convenience: `hot dev` uses it to bridge
+`.env` values like `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` into the
+`::hot::ctx` keys that provider adapters read. Hot Cloud does not run
+`hot/ctx.hot`; when deploying this demo, set these Context Variables on the
+application instead:
+
+```text
+anthropic.api.key   # required for Anthropic chat
+openai.api.key      # required for OpenAI chat and/or OpenAI embeddings
+```
 
 ## Local SDK development
 
@@ -189,8 +222,9 @@ Want to ship just one mode into your own project?
 3. Add the deps to your `hot.hot`:
 
    ```hot
-   "hot.dev/hot-ai":       "1.4.0",
-   "hot.dev/hot-ai-agent": "1.0.0",
+   "hot.dev/hot-ai":       "1.5.0",
+   "hot.dev/hot-ai-agent": "1.1.0",
+   "hot.dev/openai":       "1.2.1",
    "hot.dev/anthropic":    "1.2.1",
    ```
 
