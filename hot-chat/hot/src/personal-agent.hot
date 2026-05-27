@@ -29,6 +29,7 @@ meta {
 ::session       ::ai::session
 ::message       ::ai::message
 ::memory        ::ai::memory
+::store         ::hot::store
 ::transport     ::ai::agent::transport
 ::runtime       ::ai::agent::runtime
 ::att           ::ai::agent::attachments
@@ -38,6 +39,8 @@ meta {
 ::rag           ::ai::rag
 ::ai-chat       ::ai::chat
 ::anth          ::anthropic::chat-tools
+::openai-chat   ::openai::chat-tools
+::openai-embed  ::openai::embeddings
 ::env           ::hot::env
 ::ctx           ::hot::ctx
 ::tool          ::ai::tool
@@ -46,6 +49,9 @@ Session    ::session/Session
 Identity   ::session/Identity
 TurnConfig ::chat-turn/TurnConfig
 TurnInput  ::chat-turn/TurnInput
+MemoryOptions ::memory/MemoryOptions
+Embedding ::store/Embedding
+EmbeddingOptions ::store/EmbeddingOptions
 
 PersonalAgent
 meta {
@@ -62,22 +68,87 @@ type {
 
 AGENT_NAME    "personal-agent-demo"
 STREAM_LABEL  "personal-agent"
-DEFAULT_MODEL "claude-sonnet-4-5"
+DEFAULT_CHAT_PROVIDER "auto"
+DEFAULT_ANTHROPIC_MODEL "claude-sonnet-4-5"
+DEFAULT_OPENAI_MODEL "gpt-4o-mini"
 
-agent PersonalAgent({model: ::env/get("HOT_CHAT_MODEL", DEFAULT_MODEL)})
+anthropic-api-key fn (): Str {
+    from-ctx ::ctx/get("anthropic.api.key", null)
+    cond {
+        not(is-empty(or(from-ctx, ""))) => { Str(from-ctx) }
+        => { ::env/get("ANTHROPIC_API_KEY", "") }
+    }
+}
+
+openai-api-key fn (): Str {
+    from-ctx ::ctx/get("openai.api.key", null)
+    cond {
+        not(is-empty(or(from-ctx, ""))) => { Str(from-ctx) }
+        => { ::env/get("OPENAI_API_KEY", "") }
+    }
+}
+
+has-anthropic-key fn (): Bool {
+    not(is-empty(anthropic-api-key()))
+}
+
+has-openai-key fn (): Bool {
+    not(is-empty(openai-api-key()))
+}
+
+model-provider fn (model: Str): Str? {
+    lower lowercase(model)
+    cond {
+        starts-with(lower, "claude") => { "anthropic" }
+        or(starts-with(lower, "gpt"), or(starts-with(lower, "o1"), or(starts-with(lower, "o3"), starts-with(lower, "o4")))) => { "openai" }
+        => { null }
+    }
+}
+
+requested-chat-provider fn (): Str {
+    raw lowercase(::env/get("HOT_CHAT_PROVIDER", DEFAULT_CHAT_PROVIDER))
+    cond {
+        eq(raw, "anthropic") => { "anthropic" }
+        eq(raw, "openai") => { "openai" }
+        => { or(model-provider(::env/get("HOT_CHAT_MODEL", "")), "auto") }
+    }
+}
+
+chat-provider-label fn (): Str {
+    requested requested-chat-provider()
+    cond {
+        eq(requested, "anthropic") => { "anthropic" }
+        eq(requested, "openai") => { "openai" }
+        has-anthropic-key() => { "anthropic" }
+        has-openai-key() => { "openai" }
+        => { "anthropic" }
+    }
+}
+
+chat-model fn (): Str {
+    configured ::env/get("HOT_CHAT_MODEL", "")
+    cond {
+        not(is-empty(configured)) => { configured }
+        eq(chat-provider-label(), "openai") => { DEFAULT_OPENAI_MODEL }
+        => { DEFAULT_ANTHROPIC_MODEL }
+    }
+}
+
+agent PersonalAgent({model: chat-model()})
 rt    ::runtime/create-runtime(AGENT_NAME, {store-prefix: "demo-personal-agent", max-errors: 5})
 
 now fn (): Int { ::runtime/now-epoch-secs() }
 
-// The Anthropic adapter reads its key from `::hot::ctx` (see
-// `hot/ctx.hot`, which bridges `.env`'s `ANTHROPIC_API_KEY` into
-// `anthropic.api.key`). We probe the same place so the offline stub
-// kicks in when no key has been wired through.
 has-llm-key fn (): Bool {
-    not(is-empty(or(::ctx/get("anthropic.api.key", ""), "")))
+    cond {
+        eq(chat-provider-label(), "openai") => { has-openai-key() }
+        => { has-anthropic-key() }
+    }
 }
 
-OFFLINE_STUB "(LLM disabled: set ANTHROPIC_API_KEY in .env to enable AI replies.)"
+OFFLINE_STUB "(LLM disabled: set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env to enable AI replies.)"
+OPENAI_EMBED_MODEL "text-embedding-3-small"
+OPENAI_EMBED_DIMENSIONS 1536
 
 stub-or-null fn (): Str? {
     cond {
@@ -85,6 +156,69 @@ stub-or-null fn (): Str? {
         => { OFFLINE_STUB }
     }
 }
+
+embedding-provider-label fn (): Str {
+    use-openai eq(::env/get("HOT_CHAT_EMBEDDING_PROVIDER", ""), "openai")
+    cond {
+        and(use-openai, has-openai-key()) => { "openai" }
+        => { "default" }
+    }
+}
+
+MEMORY_AGENT_NAME if(eq(embedding-provider-label(), "openai"), `${AGENT_NAME}:openai`, AGENT_NAME)
+
+openai-embed fn (text: Str): Vec<Dec> {
+    ::ctx/set({"openai.api.key": openai-api-key()})
+    response ::openai-embed/create(::openai-embed/EmbeddingRequest({
+        input: text,
+        model: OPENAI_EMBED_MODEL,
+    }))
+    cond {
+        gt(length(response.data), 0) => { response.data[0].embedding }
+        => { [] }
+    }
+}
+
+openai-embed-batch fn (texts: Vec<Str>): Vec<Vec<Dec>> {
+    ::ctx/set({"openai.api.key": openai-api-key()})
+    response ::openai-embed/create(::openai-embed/EmbeddingRequest({
+        input: texts,
+        model: OPENAI_EMBED_MODEL,
+    }))
+    map(response.data, %.embedding)
+}
+
+chat-with-tools-stream fn (model: Str, messages: Vec<::ai::chat/Message>, system: Str?, tools: Vec<::ai::tool/Tool>?, on-delta: Fn): ::ai-chat/ChatReply {
+    cond {
+        eq(chat-provider-label(), "openai") => {
+            ::ctx/set({"openai.api.key": openai-api-key()})
+            ::openai-chat/chat-with-tools-stream(model, messages, system, tools, on-delta)
+        }
+        => {
+            ::ctx/set({"anthropic.api.key": anthropic-api-key()})
+            ::anth/chat-with-tools-stream(model, messages, system, tools, on-delta)
+        }
+    }
+}
+
+memory-embedding fn (): EmbeddingOptions {
+    cond {
+        eq(embedding-provider-label(), "openai") => {
+            Embedding({
+                provider: "openai",
+                model: OPENAI_EMBED_MODEL,
+                dimensions: OPENAI_EMBED_DIMENSIONS,
+                field: "content",
+                embed-fn: openai-embed,
+                embed-batch-fn: openai-embed-batch,
+                on-error: "fail",
+            })
+        }
+        => { EmbeddingOptions.Default }
+    }
+}
+
+memory-opts MemoryOptions({embedding: memory-embedding()})
 
 // ============================================================================
 // Shared helpers
@@ -107,7 +241,7 @@ session-from-data fn (data: Map, identity: Identity): Session {
 }
 
 make-memory fn (session: Session, identity: Identity): ::memory/AgentMemory {
-    ::memory/create-memory(AGENT_NAME, session, identity)
+    ::memory/create-memory-with-options(MEMORY_AGENT_NAME, session, identity, memory-opts)
 }
 
 // `reply` packages a fully-formed final string as a `start` / `delta` /
@@ -172,14 +306,12 @@ fn (task: Str): Map {
 }
 
 llm-tools [
-    ::tool/from-fn(record-task-completion, {
-        name: "record_task_completion",
-    }),
+    ::tool/from-fn(record-task-completion, {name: "record_task_completion"}),
 ]
 
 chat-opts ::ai-chat/ChatOptions({
-    chat-stream-fn: ::anth/chat-with-tools-stream,
-    model: ::env/get("HOT_CHAT_MODEL", DEFAULT_MODEL),
+    chat-stream-fn: chat-with-tools-stream,
+    model: chat-model(),
     max-iterations: 4,
     tools: llm-tools,
 })
@@ -194,10 +326,11 @@ You can call the tool \`record_task_completion(task)\` to mark a personal task a
 
 turn-cfg TurnConfig({
     rt: rt,
-    agent-name: AGENT_NAME,
+    agent-name: MEMORY_AGENT_NAME,
     stream-label: STREAM_LABEL,
     chat-opts: chat-opts,
     system-base: FREE_CHAT_SYSTEM,
+    memory-opts: memory-opts,
 })
 
 base-input fn (d: Map, session: Session, sender: Identity, text: Str): TurnInput {

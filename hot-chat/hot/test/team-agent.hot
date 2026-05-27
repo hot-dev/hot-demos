@@ -11,9 +11,10 @@
 // tests here cover the dispatch shape, identity resolution, and
 // writes that don't require an embedding provider.
 //
-// Free-chat handlers force the offline-stub path by clearing the
-// Anthropic key in ctx — keeps `hot test` hermetic and free.
+// Free-chat handlers force the offline-stub path by clearing provider
+// keys in ctx — keeps `hot test` hermetic and free.
 ::hot::ctx/set("anthropic.api.key", "")
+::hot::ctx/set("openai.api.key", "")
 
 mk-event fn (data: Map): Map { {data: data} }
 
@@ -28,7 +29,7 @@ base-data fn (session-id: Str, user-id: Str, user-name: Str): Map {
 }
 
 // Free-chat persists the writer's message AND streams an LLM reply.
-// Without `ANTHROPIC_API_KEY` in the test environment, the handler
+// Without a chat provider API key in the test environment, the handler
 // falls back to a deterministic stub so this test stays hermetic.
 test-record-message-persists-and-replies
 meta ["test"]
@@ -40,7 +41,7 @@ fn () {
 
     result ::demo/record-message(mk-event(data))
     assert(result.ok)
-    assert(contains(result.text, "ANTHROPIC_API_KEY"))
+    assert(contains(result.text, "ANTHROPIC_API_KEY or OPENAI_API_KEY"))
 }
 
 test-record-message-handles-attachments

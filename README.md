@@ -40,12 +40,6 @@ bridging values from `.env` into Hot context variables. Hot Dev Cloud ignores
 `hot/ctx.hot`; for deployed demos, add the same context variables in the Hot
 Dev App at [app.hot.dev](https://app.hot.dev) instead.
 
-## Package Dependencies
-
-Demos use published Hot packages from the registry so they work with a
-standard Hot installation — no sibling `hot` checkout or env overrides
-required.
-
 ## CI
 
 The GitHub Actions workflow installs the latest Hot CLI with

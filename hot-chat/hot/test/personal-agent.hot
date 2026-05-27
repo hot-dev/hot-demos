@@ -11,9 +11,10 @@
 // identity resolution, and writes that don't require an embedding
 // provider.
 //
-// Free-chat handlers force the offline-stub path by clearing the
-// Anthropic key in ctx — keeps `hot test` hermetic and free.
+// Free-chat handlers force the offline-stub path by clearing provider
+// keys in ctx — keeps `hot test` hermetic and free.
 ::hot::ctx/set("anthropic.api.key", "")
+::hot::ctx/set("openai.api.key", "")
 
 mk-event fn (data: Map): Map { {data: data} }
 
@@ -28,7 +29,7 @@ base-data fn (user-id: Str, user-name: Str): Map {
 
 // Free-chat / `/remember` persists the user turn into personal memory
 // AND streams a reply through the configured LLM. With no
-// `ANTHROPIC_API_KEY` available in the test environment, the handler
+// chat provider API key available in the test environment, the handler
 // falls back to a deterministic stub so this test stays hermetic. The
 // memory write still happens — exercised end-to-end by `/recall`,
 // `/brief`, and `/tasks` in the live demo.
@@ -42,7 +43,7 @@ fn () {
 
     result ::demo/remember-message(mk-event(data))
     assert(result.ok)
-    assert(contains(result.text, "ANTHROPIC_API_KEY"))
+    assert(contains(result.text, "ANTHROPIC_API_KEY or OPENAI_API_KEY"))
 }
 
 test-remember-handles-attachments
