@@ -133,19 +133,16 @@ seed-demo fn (): Map {
 
 query fn (text: Str): Map {
     mem memory()
-    attempt ::lang/try-call(() { ::memory/hybrid-recall(mem, text, {limit: 5, seed-node-ids: ["project:team-agent"]}) })
+    attempt ::lang/try(() { ::memory/hybrid-recall(mem, text, {limit: 5, seed-node-ids: ["project:team-agent"]}) })
     graph ::memory/graph-expand(mem, ["project:team-agent"])
-    results cond {
-        attempt.ok => { attempt.value }
-        => {
-            {
-                vector: [],
-                graph: graph,
-                citations: graph.citations,
-                error: attempt.error,
-            }
+    results if-err(attempt, (failure) {
+        {
+            vector: [],
+            graph: graph,
+            citations: graph.citations,
+            error: failure.msg,
         }
-    }
+    })
     {
         vector-count: length(results.vector),
         edge-count: length(results.graph.edges),

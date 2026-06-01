@@ -222,8 +222,8 @@ Want to ship just one mode into your own project?
 3. Add the deps to your `hot.hot`:
 
    ```hot
-   "hot.dev/hot-ai":       "1.5.0",
-   "hot.dev/hot-ai-agent": "1.1.0",
+   "hot.dev/hot-ai":       "1.7.0",
+   "hot.dev/hot-ai-agent": "1.3.0",
    "hot.dev/openai":       "1.2.1",
    "hot.dev/anthropic":    "1.2.1",
    ```
