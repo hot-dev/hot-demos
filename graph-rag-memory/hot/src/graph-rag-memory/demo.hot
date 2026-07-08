@@ -133,14 +133,16 @@ seed-demo fn (): Map {
 
 query fn (text: Str): Map {
     mem memory()
-    attempt ::lang/try(() { ::memory/hybrid-recall(mem, text, {limit: 5, seed-node-ids: ["project:team-agent"]}) })
+    // hybrid-recall returns a Result.Err when recall fails (e.g. no
+    // embedding provider); recover to a graph-only result.
+    attempt ::memory/hybrid-recall(mem, text, {limit: 5, seed-node-ids: ["project:team-agent"]})
     graph ::memory/graph-expand(mem, ["project:team-agent"])
     results if-err(attempt, (failure) {
         {
             vector: [],
             graph: graph,
             citations: graph.citations,
-            error: failure.msg,
+            error: Str(failure),
         }
     })
     {

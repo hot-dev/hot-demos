@@ -12,6 +12,7 @@
 MessagesPostRequest ::messages/MessagesPostRequest
 InputMessage ::messages/InputMessage
 POSTEmailsRequest ::emails/POSTEmailsRequest
+POSTEmailsResponse ::emails/POSTEmailsResponse
 
 sites [
     "https://techcrunch.com/category/artificial-intelligence/",
@@ -56,8 +57,14 @@ strip-html fn (html: Str): Str {
 
 // fetch news from the web (return null if failed)
 fetch-news fn (url: Str): Str? {
-  response ::http/get(url)
-  if(::http/is-ok-response(response), strip-html(response.body))
+  // request returns a Result.Err for transport failures; recover to null
+  attempt ::http/request(::http/HttpRequest({method: "GET", url: url}))
+  response if-err(attempt, null)
+  cond {
+    is-null(response) => { null }
+    ::http/is-ok-response(response) => { strip-html(response.body) }
+    => { null }
+  }
 }
 
 // summarize news via ai
@@ -87,7 +94,9 @@ summarize-news fn (news: Vec<Str>): Str {
     ]
   })
 
-  response ::messages/post(request)
+  response if-err(::messages/post(request), (failure) {
+    fail("Failed to summarize news", failure)
+  })
 
   // Extract text and strip markdown code fences if present
   first(response.content).text
@@ -96,7 +105,7 @@ summarize-news fn (news: Vec<Str>): Str {
   |> trim()
 }
 
-send-email fn (news: Str): Str {
+send-email fn (news: Str): POSTEmailsResponse {
   request POSTEmailsRequest({
     from: "hi@demo.hot.dev",
     to: ["hi@hot.dev"],
@@ -104,8 +113,9 @@ send-email fn (news: Str): Str {
     html: news
   })
 
-  sent ::emails/send-email(request)
-  if(is-ok(sent), sent, fail("Failed to send email", sent))
+  if-err(::emails/send-email(request), (failure) {
+    fail("Failed to send email", failure)
+  })
 }
 
 // This sends new via a schedule and when it receives a "send-my-news-now" event.
