@@ -1,0 +1,27 @@
+::slackbot::test::bot ns
+
+::bot ::slack-bot::bot
+
+test-parse-ai-help
+meta ["test"]
+fn () {
+  assert(eq(::bot/parse-ai-command("!ai"), "help"))
+}
+
+test-parse-ai-command-normalizes-selection
+meta ["test"]
+fn () {
+  cmd ::bot/parse-ai-command("  !ai GPT  ")
+  info ::bot/service-info(cmd.service)
+  assert(eq(info.name, "OpenAI"))
+  assert(eq(cmd.model, "gpt-5.2"))
+}
+
+test-unconfigured-provider-returns-message
+meta ["test"]
+fn () {
+  cmd ::bot/parse-ai-command("!ai gpt")
+  response ::bot/ask-ai(cmd.service, cmd.model, "hello", "system")
+  assert(contains(response, "OpenAI"))
+  assert(contains(response, "not configured"))
+}

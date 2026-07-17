@@ -1,0 +1,18 @@
+::demo::test::mynews ns
+
+::news ::demo::my-news
+
+test-strip-html-keeps-absolute-link
+meta ["test"]
+fn () {
+  html "<html><head><title>ignore</title></head><body><script>bad()</script><p>AI News <a href=\"https://example.com/story\">Read more</a></p></body></html>"
+  cleaned ::news/strip-html(html)
+  assert(eq(cleaned, "AI News Read more (https://example.com/story)"))
+}
+
+test-strip-html-decodes-common-entities
+meta ["test"]
+fn () {
+  cleaned ::news/strip-html("<p>Tom &amp; Jerry&nbsp;&lt;ok&gt; &hellip;</p>")
+  assert(eq(cleaned, "Tom & Jerry <ok> ..."))
+}

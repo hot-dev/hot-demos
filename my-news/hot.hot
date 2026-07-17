@@ -24,8 +24,8 @@ hot.remote.hot-dev.key ::env/get("HOT_API_KEY", "")
 hot.project.my-news.src.paths ["./hot/src"]
 hot.project.my-news.test.paths ["./hot/test"]
 hot.project.my-news.deps {
-    "hot.dev/anthropic": "0.9.2",
-    "hot.dev/resend": "0.9.2"
+    "hot.dev/anthropic": "1.2.2",
+    "hot.dev/resend": "1.1.0",
 }
 
 // Dev Server Configuration

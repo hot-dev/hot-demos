@@ -47,25 +47,25 @@ CONTEXT_MESSAGES 20
 // Type `!ai sonnet` or `!ai gpt` or `!ai grok` — whatever feels natural.
 
 MODEL_ALIASES {
-  "claude":   {service: "Anthropic", model: "claude-sonnet-4-5"},
-  "sonnet":   {service: "Anthropic", model: "claude-sonnet-4-5"},
-  "opus":     {service: "Anthropic", model: "claude-opus-4-6"},
-  "gpt":      {service: "OpenAi",    model: "gpt-5.2"},
-  "gpt-5.2":  {service: "OpenAi",    model: "gpt-5.2"},
-  "gpt-mini": {service: "OpenAi",    model: "gpt-5-mini"},
-  "grok":     {service: "Xai",       model: "grok-4-1-fast"},
-  "gemini":   {service: "Gemini",    model: "gemini-3-flash-preview"}
+  "claude":   {service: AiService.Anthropic, model: "claude-sonnet-4-5"},
+  "sonnet":   {service: AiService.Anthropic, model: "claude-sonnet-4-5"},
+  "opus":     {service: AiService.Anthropic, model: "claude-opus-4-6"},
+  "gpt":      {service: AiService.OpenAi,    model: "gpt-5.2"},
+  "gpt-5.2":  {service: AiService.OpenAi,    model: "gpt-5.2"},
+  "gpt-mini": {service: AiService.OpenAi,    model: "gpt-5-mini"},
+  "grok":     {service: AiService.Xai,       model: "grok-4-1-fast"},
+  "gemini":   {service: AiService.Gemini,    model: "gemini-3-flash-preview"}
 }
 
 // Default selection (used when no !ai command found in history)
-DEFAULT_SELECTION {service: "Anthropic", model: "claude-sonnet-4-5"}
+DEFAULT_SELECTION {service: AiService.Anthropic, model: "claude-sonnet-4-5"}
 
 // Display info for each service (emoji + display name)
-SERVICE_INFO {
-  "Anthropic": {name: "Anthropic", emoji: ":brain:"},
-  "OpenAi":    {name: "OpenAI",    emoji: ":robot_face:"},
-  "Xai":       {name: "xAI",       emoji: ":zap:"},
-  "Gemini":    {name: "Google",    emoji: ":sparkles:"}
+service-info fn match (service: AiService): Map {
+  AiService.Anthropic => { {name: "Anthropic", emoji: ":brain:"} }
+  AiService.OpenAi    => { {name: "OpenAI",    emoji: ":robot_face:"} }
+  AiService.Xai       => { {name: "xAI",       emoji: ":zap:"} }
+  AiService.Gemini    => { {name: "Google",    emoji: ":sparkles:"} }
 }
 
 // ============================================================================
@@ -111,22 +111,12 @@ detect-selection fn (channel: Str, bot-user-id: Str): Map {
     |> or(DEFAULT_SELECTION)
 }
 
-// Map service string to enum variant
-to-service fn cond (key: Str): AiService {
-  eq(key, "Anthropic") => { AiService.Anthropic }
-  eq(key, "OpenAi")    => { AiService.OpenAi }
-  eq(key, "Xai")       => { AiService.Xai }
-  eq(key, "Gemini")    => { AiService.Gemini }
-  => { AiService.Anthropic }
-}
-
 // Format the selection list for display
 selection-list-text fn (active: Map): Str {
-  SERVICE_INFO
-    |> keys
-    |> map((key) {
-      svc get(SERVICE_INFO, key)
-      marker if(eq(key, active.service), ` :white_check_mark: \`${active.model}\``, "")
+  [AiService.Anthropic, AiService.OpenAi, AiService.Xai, AiService.Gemini]
+    |> map((service) {
+      svc service-info(service)
+      marker if(eq(service, active.service), ` :white_check_mark: \`${active.model}\``, "")
       `${svc.emoji}  *${svc.name}*${marker}`
     })
     |> join("\n")
@@ -142,7 +132,13 @@ ask-ai fn match (service: AiService, model: Str, message: Str, system: Str): Str
   // AiService.OpenAi => { ::openai-chat/chat(model, message, system) }
   // AiService.Xai    => { ::xai-chat/chat(model, message, system) }
   // AiService.Gemini => { ::gemini-chat/chat(model, message, system) }
-  => { err("This AI provider is not configured yet. Add its API key in Context Variables and uncomment its line in ask-ai.") }
+  => {
+    svc service-info(service)
+    concat(
+      svc.name,
+      " is not configured in this demo yet. Add its API key in Context Variables and uncomment its line in `ask-ai`."
+    )
+  }
 }
 
 // ============================================================================
@@ -190,7 +186,7 @@ handle-message fn (channel: Str, message: Map, bot-user-id: Str): Map {
     // !ai — show current model and available options
     eq(cmd, "help") => {
       active detect-selection(channel, bot-user-id)
-      svc get(SERVICE_INFO, active.service)
+      svc service-info(active.service)
       ::messaging/chat-post-message(::messaging/ChatPostMessageRequest({
         channel: channel,
         text: concat(
@@ -203,7 +199,7 @@ handle-message fn (channel: Str, message: Map, bot-user-id: Str): Map {
 
     // !ai <selection> — acknowledge the switch with service + model
     is-some(cmd) => {
-      svc get(SERVICE_INFO, cmd.service)
+      svc service-info(cmd.service)
       ::messaging/chat-post-message(::messaging/ChatPostMessageRequest({
         channel: channel,
         text: `${svc.emoji} Switched to *${svc.name}* \`${cmd.model}\``
@@ -213,14 +209,13 @@ handle-message fn (channel: Str, message: Map, bot-user-id: Str): Map {
     // Regular message — detect model from history and reply with context
     => {
       sel detect-selection(channel, bot-user-id)
-      service to-service(sel.service)
       context fetch-context(channel, bot-user-id)
       prompt if(is-empty(context),
         text,
         `Recent conversation:\n\n${context}\n\n---\nRespond to the latest message.`
       )
 
-      ai-response ask-ai(service, sel.model, prompt, SYSTEM_PROMPT)
+      ai-response ask-ai(sel.service, sel.model, prompt, SYSTEM_PROMPT)
       ::messaging/chat-post-message(::messaging/ChatPostMessageRequest({
         channel: channel,
         text: ai-response

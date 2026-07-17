@@ -20,7 +20,7 @@ hot.project.graph-rag-memory.src.paths ["./hot/src"]
 hot.project.graph-rag-memory.test.paths ["./hot/test"]
 hot.project.graph-rag-memory.test.capture true
 hot.project.graph-rag-memory.deps {
-    "hot.dev/hot-ai": "1.7.0",
+    "hot.dev/hot-ai": "1.7.1",
 }
 
 hot.dev.open false

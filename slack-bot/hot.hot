@@ -17,12 +17,12 @@ hot.remote.hot-dev.key ::env/get("HOT_API_KEY", "")
 hot.project.slack-bot.src.paths ["./hot/src"]
 hot.project.slack-bot.test.paths ["./hot/test"]
 hot.project.slack-bot.deps {
-    "hot.dev/hot-ai": "1.7.0",
-    "hot.dev/slack": "1.0.4",
-    "hot.dev/anthropic": "1.0.3",
-    "hot.dev/openai": "1.0.4",
-    "hot.dev/xai": "1.0.3",
-    "hot.dev/gemini": "1.0.3"
+    "hot.dev/hot-ai": "1.7.1",
+    "hot.dev/slack": "1.1.0",
+    "hot.dev/anthropic": "1.2.2",
+    "hot.dev/openai": "1.2.2",
+    "hot.dev/xai": "1.1.1",
+    "hot.dev/gemini": "1.1.1",
 }
 
 // Dev Server Configuration
