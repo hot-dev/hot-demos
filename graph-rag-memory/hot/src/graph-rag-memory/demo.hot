@@ -6,18 +6,32 @@ meta {
 ::session ::ai::session
 ::message ::ai::message
 ::memory ::ai::memory
-::lang ::hot::lang
+::store ::hot::store
 
 Session ::session/Session
 Identity ::session/Identity
 Message ::message/Message
+MemoryOptions ::memory/MemoryOptions
+Embedding ::store/Embedding
 
 agent-name "graph-rag-memory-demo"
 demo-session Session({id: "graph-rag-memory:demo"})
 demo-identity Identity({id: "u-demo", name: "Demo User"})
 
+demo-embed fn (text: Str): Vec<Int> {
+    [length(text), 1]
+}
+
 memory fn (): ::memory/AgentMemory {
-    ::memory/create-memory(agent-name, demo-session, demo-identity)
+    embedding Embedding({
+        provider: "demo",
+        model: "length-v1",
+        dimensions: 2,
+        field: "content",
+        embed-fn: demo-embed,
+    })
+    opts MemoryOptions({embedding: embedding})
+    ::memory/create-memory-with-options(agent-name, demo-session, demo-identity, opts)
 }
 
 msg fn (id: Str, content: Str, ts: Int): Message {
@@ -133,18 +147,7 @@ seed-demo fn (): Map {
 
 query fn (text: Str): Map {
     mem memory()
-    // hybrid-recall returns a Result.Err when recall fails (e.g. no
-    // embedding provider); recover to a graph-only result.
-    attempt ::memory/hybrid-recall(mem, text, {limit: 5, seed-node-ids: ["project:team-agent"]})
-    graph ::memory/graph-expand(mem, ["project:team-agent"])
-    results if-err(attempt, (failure) {
-        {
-            vector: [],
-            graph: graph,
-            citations: graph.citations,
-            error: Str(failure),
-        }
-    })
+    results ::memory/hybrid-recall(mem, text, {limit: 5, seed-node-ids: ["project:team-agent"]})
     {
         vector-count: length(results.vector),
         edge-count: length(results.graph.edges),

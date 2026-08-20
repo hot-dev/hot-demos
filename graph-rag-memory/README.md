@@ -15,12 +15,11 @@ a pure walkthrough of how memory accumulates and is queried.
 
 ## Dependencies
 
-Uses published `hot.dev/hot-ai` **1.7.1** from the Hot package registry —
+Uses published `hot.dev/hot-ai` **1.8.1** from the Hot package registry —
 no sibling `hot` checkout required.
 
-No LLM or external API key is required. Without an embedding provider
-configured locally, the demo falls back to graph expansion so you still see
-citations.
+No LLM or external API key is required. The demo supplies a tiny deterministic
+local embedding function so hybrid recall works in a self-contained project.
 
 ## Tutorial
 
@@ -40,8 +39,8 @@ cp .env.example .env
 hot test
 ```
 
-You should see three tests pass. `test-hybrid-query-has-citations` is the
-one that exercises the no-embedding fallback path.
+You should see three tests pass. `test-hybrid-query-has-citations` exercises
+the local vector search and graph-expansion paths together.
 
 ### Step 4: Start Hot Dev (Optional)
 
@@ -76,13 +75,13 @@ entities (people, projects, tasks) connected by 4 edges.
 hot eval '::graph-rag-memory::demo/query("What blocks TeamAgent launch readiness?")'
 ```
 
-Expected result (counts vary by embedding configuration):
+Expected result:
 
 ```text
 {
-  vector-count: 0..3,
-  edge-count: 4,
-  citation-count: 4..7,
+  vector-count: 8,
+  edge-count: 2,
+  citation-count: 10,
   citations: [
     {id: "edge:team-agent-docs", label: "TeamAgent blocked-by Docs walkthrough", excerpt: "…"},
     …
@@ -90,8 +89,9 @@ Expected result (counts vary by embedding configuration):
 }
 ```
 
-`vector-count` may be `0` if no embedding provider is configured. The graph
-edges and citations are still returned, so the answer structure is visible.
+The local two-dimensional embedding is intentionally simple: it makes the
+vector path deterministic and dependency-free, while the graph edges make the
+provenance structure visible.
 
 ### Step 7: Trace The Code
 
@@ -101,8 +101,8 @@ Open `hot/src/graph-rag-memory/demo.hot` and follow the four functions:
 - `seed-capsule` compacts those records into a durable capsule.
 - `seed-graph` extracts nodes and edges, attaching provenance back to the
   source record.
-- `query` runs hybrid recall and falls back to graph expansion if the
-  embedding call fails.
+- `query` runs hybrid recall with the local embedding and expands the seed
+  node through the graph.
 
 The interesting bit is **provenance**: every node, edge, and citation knows
 which record it came from, so the agent layer can cite memory back to its
