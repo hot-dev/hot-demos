@@ -24,8 +24,8 @@ hot.project.hot-chat.test.capture true
 hot.project.hot-chat.deps {
     "hot.dev/hot-ai":       "1.8.1",
     "hot.dev/hot-ai-agent": "1.4.0",
-    "hot.dev/openai":       "1.2.7",
-    "hot.dev/anthropic":    "1.2.4",
+    "hot.dev/openai":       "1.2.8",
+    "hot.dev/anthropic":    "1.2.5",
 }
 
 hot.dev.open false
